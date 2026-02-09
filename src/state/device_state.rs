@@ -17,7 +17,10 @@ impl DeviceState {
     }
 
     pub async fn add_device(&self, device: ClientInfo) {
-        self.devices.write().await.insert(device.token.clone(), device);
+        self.devices
+            .write()
+            .await
+            .insert(device.token.clone(), device);
     }
 
     pub async fn remove_device(&self, token: &str) {

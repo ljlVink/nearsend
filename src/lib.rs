@@ -8,7 +8,7 @@ use log::LevelFilter;
 use ohos_hilog_binding::log::Config;
 use openharmony_ability::OpenHarmonyApp;
 
-mod app_new;
+mod app;
 mod core;
 mod state;
 mod ui;
@@ -47,19 +47,27 @@ pub fn openharmony_app(app: OpenHarmonyApp) {
                     let view = cx.new(|cx| {
                         // Initialize core services
                         let discovery = cx.new(|_| core::discovery::DiscoveryService::new());
-                        let server = cx.new(|_| core::server::ServerManager::new(53317, std::path::PathBuf::from("./downloads")));
+                        let server = cx.new(|_| {
+                            core::server::ServerManager::new(
+                                53317,
+                                std::path::PathBuf::from("./downloads"),
+                            )
+                        });
                         let transfer = cx.new(|_| core::transfer::TransferService::new());
-                        
+
                         // Initialize state
-                        let app_state = cx.new(|_| state::app_state::AppState::new(discovery.clone(), server.clone(), transfer.clone()));
+                        let app_state = cx.new(|_| {
+                            state::app_state::AppState::new(
+                                discovery.clone(),
+                                server.clone(),
+                                transfer.clone(),
+                            )
+                        });
                         let device_state = cx.new(|_| state::device_state::DeviceState::new());
-                        let transfer_state = cx.new(|_| state::transfer_state::TransferState::new());
-                        
-                        app_new::NearSendAppNew::new(
-                            app_state,
-                            device_state,
-                            transfer_state,
-                        )
+                        let transfer_state =
+                            cx.new(|_| state::transfer_state::TransferState::new());
+
+                        app::NearSendApp::new(app_state, device_state, transfer_state)
                     });
                     cx.new(|cx| Root::new(view, window, cx))
                 },

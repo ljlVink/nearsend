@@ -1,13 +1,8 @@
 use crate::state::transfer_state::TransferState;
 use crate::ui::components::transfer_item::TransferItem;
-use gpui::{
-    div, prelude::*, px, Context, Entity, Window,
-};
-use gpui_component::{
-    scroll::ScrollableElement,
-    v_flex, ActiveTheme as _, StyledExt as _,
-};
-use crate::ui::theme::{spacing, sizing};
+use crate::ui::theme::{sizing, spacing};
+use gpui::{div, prelude::*, px, Context, Entity, Window};
+use gpui_component::{scroll::ScrollableElement, v_flex, ActiveTheme as _, StyledExt as _};
 
 /// Progress page for showing active transfers (mobile-first design)
 pub struct ProgressPage {
@@ -37,17 +32,15 @@ impl gpui::Render for ProgressPage {
                     .child("Active Transfers"),
             )
             .child(
-                div()
-                    .flex_1()
-                    .child(
-                        // TODO: Fetch active transfers from transfer_state and render TransferItem for each
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .p(spacing::LG)
-                            .text_center()
-                            .child("No active transfers"),
-                    ),
+                div().flex_1().child(
+                    // TODO: Fetch active transfers from transfer_state and render TransferItem for each
+                    div()
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .p(spacing::LG)
+                        .text_center()
+                        .child("No active transfers"),
+                ),
             )
     }
 }

@@ -1,14 +1,13 @@
-use gpui::{
-    div, prelude::*, px, Context, SharedString, Window,
-};
+use crate::ui::theme::{sizing, spacing};
+use gpui::{div, prelude::*, px, Context, SharedString, Window};
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    v_flex, h_flex, ActiveTheme as _, StyledExt as _,
+    h_flex, v_flex, ActiveTheme as _, StyledExt as _,
 };
 use std::path::PathBuf;
-use crate::ui::theme::{spacing, sizing};
 
 /// File list component for mobile design
+#[derive(IntoElement)]
 pub struct FileList {
     files: Vec<PathBuf>,
     on_remove: Option<std::rc::Rc<dyn Fn(usize, &mut Window, &mut gpui::App) + 'static>>,
@@ -45,7 +44,8 @@ impl gpui::RenderOnce for FileList {
         v_flex()
             .gap(spacing::SM)
             .children(self.files.iter().enumerate().map(|(idx, path)| {
-                let file_name = path.file_name()
+                let file_name = path
+                    .file_name()
                     .and_then(|n| n.to_str())
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| "Unknown".to_string());
@@ -71,15 +71,13 @@ impl gpui::RenderOnce for FileList {
                                     .flex_1()
                                     .child(file_name),
                             )
-                            .child(
-                                Button::new("Remove")
-                                    .ghost()
-                                    .on_click(move |_event, window, cx| {
-                                        if let Some(ref handler) = on_remove {
-                                            handler(idx, window, cx);
-                                        }
-                                    }),
-                            ),
+                            .child(Button::new("Remove").ghost().on_click(
+                                move |_event, window, cx| {
+                                    if let Some(ref handler) = on_remove {
+                                        handler(idx, window, cx);
+                                    }
+                                },
+                            )),
                     )
             }))
     }

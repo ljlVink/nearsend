@@ -1,14 +1,12 @@
-use gpui::{
-    div, prelude::*, px, Context, Window,
-};
-use gpui_component::{
-    progress::Progress,
-    v_flex, h_flex, ActiveTheme as _, StyledExt as _, Sizable as _,
-};
 use crate::state::transfer_state::{TransferInfo, TransferStatus};
-use crate::ui::theme::{spacing, sizing};
+use crate::ui::theme::{sizing, spacing};
+use gpui::{div, prelude::*, px, Context, Window};
+use gpui_component::{
+    h_flex, progress::Progress, v_flex, ActiveTheme as _, Sizable as _, StyledExt as _,
+};
 
 /// Transfer item component for mobile design
+#[derive(IntoElement)]
 pub struct TransferItem {
     transfer: TransferInfo,
 }

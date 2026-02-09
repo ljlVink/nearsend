@@ -1,3 +1,15 @@
+pub mod big_button;
+pub mod custom_icon_button;
+pub mod device_badge;
 pub mod device_card;
+pub mod device_placeholder;
 pub mod file_list;
+pub mod labeled_checkbox;
+pub mod logo;
+pub mod opacity_slideshow;
+pub mod progress_bar;
+pub mod responsive_wrap_view;
+pub mod rotating_widget;
+pub mod switch;
+pub mod text_input;
 pub mod transfer_item;

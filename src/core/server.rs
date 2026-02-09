@@ -21,14 +21,10 @@ impl ServerManager {
     }
 
     /// Start the HTTP server
-    /// 
+    ///
     /// Note: This uses tokio::spawn internally, which requires tokio runtime.
     /// For OpenHarmony, ensure tokio runtime is available or use GPUI async context.
-    pub async fn start(
-        &mut self,
-        client_info: ClientInfo,
-        use_https: bool,
-    ) -> anyhow::Result<()> {
+    pub async fn start(&mut self, client_info: ClientInfo, use_https: bool) -> anyhow::Result<()> {
         let (stop_tx, stop_rx) = oneshot::channel();
         self.stop_tx = Some(stop_tx);
 
@@ -44,16 +40,22 @@ impl ServerManager {
         // If there are issues, we may need to wrap it in GPUI async context
         let port = self.port;
         let client_info_clone = client_info.clone();
-        
+
         // Start server - localsend core uses tokio internally
         // This should work on OpenHarmony if tokio runtime is properly configured
         tokio::spawn(async move {
-            if let Err(e) = start_with_port(port, tls_config, client_info_clone, true, stop_rx).await {
+            if let Err(e) =
+                start_with_port(port, tls_config, client_info_clone, true, stop_rx).await
+            {
                 log::error!("Server error: {}", e);
             }
         });
 
-        log::info!("Starting HTTP server on port {} (HTTPS: {})", self.port, use_https);
+        log::info!(
+            "Starting HTTP server on port {} (HTTPS: {})",
+            self.port,
+            use_https
+        );
         Ok(())
     }
 

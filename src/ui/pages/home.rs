@@ -1,13 +1,11 @@
 use crate::state::{device_state::DeviceState, transfer_state::TransferState};
-use crate::ui::pages::{send::SendPage, receive::ReceivePage};
-use gpui::{
-    div, prelude::*, px, Context, Entity, Window,
-};
+use crate::ui::pages::{receive::ReceivePage, send::SendPage};
+use crate::ui::theme::sizing;
+use gpui::{div, prelude::*, px, Context, Entity, Window};
 use gpui_component::{
     tab::{Tab, TabBar},
     v_flex, ActiveTheme as _, StyledExt as _,
 };
-use crate::ui::theme::sizing;
 
 /// Home page with tab navigation (mobile-first design)
 pub struct HomePage {
@@ -17,10 +15,7 @@ pub struct HomePage {
 }
 
 impl HomePage {
-    pub fn new(
-        device_state: Entity<DeviceState>,
-        transfer_state: Entity<TransferState>,
-    ) -> Self {
+    pub fn new(device_state: Entity<DeviceState>, transfer_state: Entity<TransferState>) -> Self {
         Self {
             device_state,
             transfer_state,
@@ -62,10 +57,7 @@ impl gpui::Render for HomePage {
                     .on_click(cx.listener(|this, index, _window, _cx| {
                         this.current_tab = *index;
                     }))
-                    .children([
-                        Tab::new().label("Send"),
-                        Tab::new().label("Receive"),
-                    ]),
+                    .children([Tab::new().label("Send"), Tab::new().label("Receive")]),
             )
             .child(
                 // Content area

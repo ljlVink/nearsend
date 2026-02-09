@@ -6,7 +6,10 @@ use gpui::AsyncApp;
 use localsend::http::state::ClientInfo;
 
 /// Initialize discovery service in async context
-pub async fn init_discovery(discovery: &mut DiscoveryService, cx: &mut AsyncApp) -> anyhow::Result<()> {
+pub async fn init_discovery(
+    discovery: &mut DiscoveryService,
+    cx: &mut AsyncApp,
+) -> anyhow::Result<()> {
     discovery.start().await?;
     log::info!("Discovery service started");
     Ok(())

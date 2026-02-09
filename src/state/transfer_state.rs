@@ -38,7 +38,10 @@ impl TransferState {
     }
 
     pub async fn add_transfer(&self, transfer: TransferInfo) {
-        self.transfers.write().await.insert(transfer.id.clone(), transfer);
+        self.transfers
+            .write()
+            .await
+            .insert(transfer.id.clone(), transfer);
     }
 
     pub async fn update_transfer(&self, id: &str, status: TransferStatus, progress: f64) {

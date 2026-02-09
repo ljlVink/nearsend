@@ -1,5 +1,5 @@
 use localsend::http::client::LsHttpClient;
-use localsend::http::dto::{ProtocolType, RegisterDto, PrepareUploadRequestDto};
+use localsend::http::dto::{PrepareUploadRequestDto, ProtocolType, RegisterDto};
 use localsend::http::state::ClientInfo;
 use std::path::PathBuf;
 
@@ -34,7 +34,11 @@ impl TransferService {
         // 2. Register
         // 3. Prepare upload
         // 4. Upload files
-        log::info!("Sending {} files to device {}", files.len(), device_info.alias);
+        log::info!(
+            "Sending {} files to device {}",
+            files.len(),
+            device_info.alias
+        );
         Ok("transfer_id".to_string())
     }
 }

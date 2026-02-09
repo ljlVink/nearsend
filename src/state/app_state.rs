@@ -12,7 +12,11 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(discovery: Entity<DiscoveryService>, server: Entity<ServerManager>, transfer: Entity<TransferService>) -> Self {
+    pub fn new(
+        discovery: Entity<DiscoveryService>,
+        server: Entity<ServerManager>,
+        transfer: Entity<TransferService>,
+    ) -> Self {
         Self {
             discovery,
             server,
