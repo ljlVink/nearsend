@@ -17,6 +17,10 @@ use gpui_component::{
 /// Button width/height for content type buttons (matches BigButton constants).
 const CONTENT_BTN_WIDTH: f32 = 90.0;
 const CONTENT_BTN_HEIGHT: f32 = 65.0;
+const CONTENT_BTN_GAP: f32 = 10.0;
+const CONTENT_BTN_COUNT: f32 = 4.0;
+const CONTENT_ROW_MIN_WIDTH: f32 =
+    CONTENT_BTN_WIDTH * CONTENT_BTN_COUNT + CONTENT_BTN_GAP * (CONTENT_BTN_COUNT - 1.0) + 2.0;
 
 /// Render a content-type selector button (File / Media / Text / Folder).
 /// Primary background + white text, no hover/active state change.
@@ -171,7 +175,8 @@ pub fn render_send_content(
                                     .overflow_x_scroll()
                                     .child(
                                         h_flex()
-                                            .gap(px(10.))
+                                            .min_w(px(CONTENT_ROW_MIN_WIDTH))
+                                            .gap(px(CONTENT_BTN_GAP))
                                             .items_center()
                                             .child(render_content_type_button(
                                                 "content-file",
