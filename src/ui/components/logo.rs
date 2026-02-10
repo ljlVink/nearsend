@@ -1,5 +1,5 @@
 use gpui::{
-    div, percentage, prelude::*, px, svg, Animation, AnimationExt as _, IntoElement,
+    div, hsla, percentage, prelude::*, px, svg, Animation, AnimationExt as _, IntoElement,
     Transformation, Window,
 };
 use gpui_component::{v_flex, ActiveTheme as _, StyledExt as _};
@@ -57,11 +57,15 @@ impl gpui::RenderOnce for Logo {
         let with_text = self.with_text;
         let spinning = self.spinning;
         let duration = Duration::from_secs(self.duration_secs.max(1) as u64);
+        // gpui::svg 只有在存在 text_color 时才会触发 paint_svg。
+        // 使用草绿色与 logo.svg 保持一致。
+        let svg_color = hsla(113.0 / 360.0, 0.42, 0.44, 1.0);
 
         let logo = if spinning {
             svg()
                 .w(px(size))
                 .h(px(size))
+                .text_color(svg_color)
                 .path("icons/logo.svg")
                 .with_animation(
                     "logo-rotate",
@@ -73,6 +77,7 @@ impl gpui::RenderOnce for Logo {
             svg()
                 .w(px(size))
                 .h(px(size))
+                .text_color(svg_color)
                 .path("icons/logo.svg")
                 .into_any_element()
         };

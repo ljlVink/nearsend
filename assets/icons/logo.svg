@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
-  <path d="M50 31.53 L66 59.24 L34 59.24 Z" fill="#43A047" />
+  <path d="M50 31.53 L66 59.24 L34 59.24 Z" fill="#4CA041" />
   <path
     d="M50 12 A38 38 0 1 1 49.999 12"
-    stroke="#43A047"
+    stroke="#4CA041"
     stroke-width="8"
     stroke-linecap="round"
     stroke-dasharray="17 9.52956"
