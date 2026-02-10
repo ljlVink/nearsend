@@ -1,5 +1,6 @@
-use gpui::{px, size, App, AppContext, Application, Bounds, WindowBounds, WindowOptions};
+use gpui::{hsla, px, size, App, AppContext, Application, Bounds, WindowBounds, WindowOptions};
 use gpui_component::Root;
+use gpui_component::theme::Theme;
 use gpui_component_assets::Assets as ComponentAssets;
 
 use log::LevelFilter;
@@ -25,6 +26,7 @@ pub fn openharmony_app(app: OpenHarmonyApp) {
         .run(move |cx: &mut App| {
             gpui_component::init(cx);
             gpui_router::init(cx);
+            Theme::global_mut(cx).overlay = hsla(0.0, 0.0, 0.0, 0.58);
 
             // Create a shared tokio runtime on a background thread.
             // All async work (server, transfers, discovery) goes through this handle.

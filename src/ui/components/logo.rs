@@ -1,11 +1,17 @@
-use gpui::{div, img, prelude::*, px, IntoElement, Window};
+use gpui::{
+    div, percentage, prelude::*, px, svg, Animation, AnimationExt as _, IntoElement,
+    Transformation, Window,
+};
 use gpui_component::{v_flex, ActiveTheme as _, StyledExt as _};
+use std::time::Duration;
 
 /// Logo component: shows app logo image with optional "NearSend" text.
 #[derive(IntoElement)]
 pub struct Logo {
     with_text: bool,
     size: f32,
+    spinning: bool,
+    duration_secs: u32,
 }
 
 impl Logo {
@@ -13,6 +19,8 @@ impl Logo {
         Self {
             with_text: false,
             size: 200.0,
+            spinning: false,
+            duration_secs: 15,
         }
     }
 
@@ -23,6 +31,16 @@ impl Logo {
 
     pub fn size(mut self, size: f32) -> Self {
         self.size = size;
+        self
+    }
+
+    pub fn spinning(mut self, spinning: bool) -> Self {
+        self.spinning = spinning;
+        self
+    }
+
+    pub fn duration(mut self, duration_secs: u32) -> Self {
+        self.duration_secs = duration_secs;
         self
     }
 }
@@ -37,53 +55,41 @@ impl gpui::RenderOnce for Logo {
     fn render(self, _window: &mut Window, cx: &mut gpui::App) -> impl IntoElement {
         let size = self.size;
         let with_text = self.with_text;
-        let primary = cx.theme().primary;
-        let primary_fg = cx.theme().primary_foreground;
-        let fallback_bg = cx.theme().muted;
-        let fallback_fg = cx.theme().foreground;
+        let spinning = self.spinning;
+        let duration = Duration::from_secs(self.duration_secs.max(1) as u64);
 
-        let logo_path = if size <= 128.0 {
-            "img/logo-128.png"
+        let logo = if spinning {
+            svg()
+                .w(px(size))
+                .h(px(size))
+                .path("icons/logo.svg")
+                .with_animation(
+                    "logo-rotate",
+                    Animation::new(duration).repeat(),
+                    |svg, delta| svg.with_transformation(Transformation::rotate(percentage(delta))),
+                )
+                .into_any_element()
         } else {
-            "img/logo-256.png"
+            svg()
+                .w(px(size))
+                .h(px(size))
+                .path("icons/logo.svg")
+                .into_any_element()
         };
-        let logo = div()
-            .w(px(size))
-            .h(px(size))
-            .rounded_lg()
-            .overflow_hidden()
-            .bg(primary)
-            .child(
-                img(logo_path)
-                    .w(px(size))
-                    .h(px(size))
-                    .object_fit(gpui::ObjectFit::Cover)
-                    .with_fallback(move || {
-                        div()
-                            .size_full()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .bg(fallback_bg)
-                            .child(
-                                div()
-                                    .text_2xl()
-                                    .font_bold()
-                                    .text_color(fallback_fg)
-                                    .child("NS"),
-                            )
-                            .into_any_element()
-                    }),
-            );
 
         if with_text {
-            v_flex().gap(px(8.)).items_center().child(logo).child(
-                div()
-                    .text_3xl()
-                    .font_bold()
-                    .text_color(cx.theme().foreground)
-                    .child("NearSend"),
-            )
+            v_flex()
+                .gap(px(8.))
+                .items_center()
+                .child(logo)
+                .child(
+                    div()
+                        .text_3xl()
+                        .font_bold()
+                        .text_color(cx.theme().foreground)
+                        .child("NearSend"),
+                )
+                .into_any_element()
         } else {
             logo
         }

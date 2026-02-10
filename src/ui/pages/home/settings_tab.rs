@@ -274,8 +274,8 @@ pub fn render_settings_content(
                                 .child(
                                     Button::new("server-start")
                                         .ghost()
-                                        .on_click(cx.listener(|this, _ev, _win, _cx| {
-                                            this.settings_state.server_running = true;
+                                        .on_click(cx.listener(|this, _ev, _win, cx| {
+                                            this.start_local_server(cx);
                                         }))
                                         .child(
                                             Icon::default()
@@ -286,10 +286,8 @@ pub fn render_settings_content(
                                 .child(
                                     Button::new("server-stop")
                                         .ghost()
-                                        .on_click(cx.listener(|this, _ev, _win, _cx| {
-                                            if this.settings_state.server_running {
-                                                this.settings_state.server_running = false;
-                                            }
+                                        .on_click(cx.listener(|this, _ev, _win, cx| {
+                                            this.stop_local_server(cx);
                                         }))
                                         .child(
                                             Icon::default()

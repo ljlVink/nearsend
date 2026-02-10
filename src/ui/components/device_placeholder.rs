@@ -1,4 +1,3 @@
-use crate::ui::components::device_badge::DeviceBadge;
 use crate::ui::theme::{sizing, spacing};
 use gpui::{div, prelude::*, px, Animation, AnimationExt as _, IntoElement, Window};
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _, Size};
@@ -85,14 +84,18 @@ impl gpui::RenderOnce for DevicePlaceholder {
                                 h_flex()
                                     .gap(px(10.))
                                     .child(
-                                        DeviceBadge::new("       ")
-                                            .background_color(muted.into())
-                                            .foreground_color(gpui::rgba(0x00000000)),
+                                        div()
+                                            .w(px(52.))
+                                            .h(px(20.))
+                                            .bg(muted)
+                                            .rounded(px(6.)),
                                     )
                                     .child(
-                                        DeviceBadge::new("              ")
-                                            .background_color(muted.into())
-                                            .foreground_color(gpui::rgba(0x00000000)),
+                                        div()
+                                            .w(px(120.))
+                                            .h(px(20.))
+                                            .bg(muted)
+                                            .rounded(px(6.)),
                                     ),
                             ),
                     ),

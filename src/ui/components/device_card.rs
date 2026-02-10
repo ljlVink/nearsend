@@ -160,11 +160,13 @@ impl gpui::RenderOnce for DeviceCard {
                             )
                             .child(subtitle),
                     )
-                    .child(if on_favorite_tap.is_some() {
+                    .child(if on_favorite_tap.is_some() || on_select.is_some() {
                         Button::new("favorite")
                             .ghost()
                             .on_click(move |_event, window, cx| {
                                 if let Some(ref handler) = on_favorite_tap {
+                                    handler(&device, window, cx);
+                                } else if let Some(ref handler) = on_select {
                                     handler(&device, window, cx);
                                 }
                             })
@@ -178,6 +180,7 @@ impl gpui::RenderOnce for DeviceCard {
                                         cx.theme().muted_foreground
                                     }),
                             )
+                            .into_any_element()
                     } else {
                         Button::new("send")
                             .primary()
@@ -187,6 +190,7 @@ impl gpui::RenderOnce for DeviceCard {
                                 }
                             })
                             .child("发送")
+                            .into_any_element()
                     }),
             )
     }

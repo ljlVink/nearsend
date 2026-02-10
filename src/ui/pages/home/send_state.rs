@@ -55,6 +55,7 @@ pub struct SendPageState {
     pub target_device: Option<ClientInfo>,
     pub target_ip: Option<String>,
     pub pending_send: bool,
+    pub has_scanned_once: bool,
 }
 
 impl Default for SendPageState {
@@ -74,6 +75,7 @@ impl Default for SendPageState {
             target_device: None,
             target_ip: None,
             pending_send: false,
+            has_scanned_once: false,
         }
     }
 }

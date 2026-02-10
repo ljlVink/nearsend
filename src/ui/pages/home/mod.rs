@@ -136,48 +136,75 @@ impl HomePage {
             state.client_info = Some(client_info.clone());
         });
 
-        // Start HTTP server
+        self.start_local_server(cx);
+
+        let tokio_handle = self.app_state.read(cx).tokio_handle.clone();
+        tokio_handle.spawn(async move {
+            if let Err(err) = crate::core::multicast::start_multicast_service(
+                client_info.alias,
+                client_info.token,
+                53317,
+                client_info.device_model,
+                client_info.device_type,
+            )
+            .await
+            {
+                log::warn!("multicast service failed: {}", err);
+            }
+        });
+    }
+
+    pub(super) fn start_local_server(&mut self, cx: &mut Context<Self>) {
+        let client_info = if let Some(info) = self.app_state.read(cx).client_info.clone() {
+            info
+        } else {
+            let token = uuid::Uuid::new_v4().to_string();
+            let info = ClientInfo {
+                alias: self.receive_state.server_alias.clone(),
+                version: "2.1".to_string(),
+                device_model: Some("OpenHarmony".to_string()),
+                device_type: Some(DeviceType::Mobile),
+                token,
+            };
+            let app_state_entity = self.app_state.clone();
+            app_state_entity.update(cx, |state, _cx| {
+                state.client_info = Some(info.clone());
+            });
+            info
+        };
+
         let server_entity = self.app_state.read(cx).server.clone();
-        let server_client_info = client_info.clone();
         let tokio_handle = self.app_state.read(cx).tokio_handle.clone();
         let cert = self.app_state.read(cx).cert.clone();
         match server_entity.update(cx, |server, _cx| {
-            server.start(server_client_info, false, cert, &tokio_handle)
+            server.start(client_info, false, cert, &tokio_handle)
         }) {
             Ok(()) => {
                 self.receive_state.server_running = true;
                 self.settings_state.server_running = true;
-                log::info!("Server started successfully");
-
-                let alias = client_info.alias.clone();
-                let fingerprint = client_info.token.clone();
-                let device_model = client_info.device_model.clone();
-                let device_type = client_info.device_type;
-                tokio_handle.spawn(async move {
-                    if let Err(err) = crate::core::multicast::start_multicast_service(
-                        alias,
-                        fingerprint,
-                        53317,
-                        device_model,
-                        device_type,
-                    )
-                    .await
-                    {
-                        log::warn!("multicast service failed: {}", err);
-                    }
-                });
             }
             Err(e) => {
                 log::error!("Failed to start server: {}", e);
                 self.receive_state.server_running = false;
+                self.settings_state.server_running = false;
             }
         }
+    }
+
+    pub(super) fn stop_local_server(&mut self, cx: &mut Context<Self>) {
+        let server_entity = self.app_state.read(cx).server.clone();
+        server_entity.update(cx, |server, _cx| {
+            server.stop();
+        });
+        self.receive_state.server_running = false;
+        self.settings_state.server_running = false;
     }
 
     pub(super) fn start_discovery_scan(&mut self, cx: &mut Context<Self>) {
         if self.send_state.scanning {
             return;
         }
+        self.send_state.has_scanned_once = true;
         self.send_state.scanning = true;
         self.send_state.nearby_devices.clear();
         self.send_state.nearby_endpoints.clear();
@@ -190,12 +217,6 @@ impl HomePage {
             .client_info
             .as_ref()
             .map(|c| c.token.clone());
-        log::info!(
-            "discovery scan started: port={} timeout_ms={} self_fingerprint_present={}",
-            port,
-            timeout_ms,
-            self_fingerprint.is_some()
-        );
         let handle = self.app_state.read(cx).tokio_handle.clone();
         let join = handle.spawn(async move {
             crate::core::discovery::scan_local_network(
@@ -231,14 +252,78 @@ impl HomePage {
                     })
                     .collect();
                 this.send_state.scanning = false;
-                log::info!(
-                    "discovery scan finished: discovered_devices={}",
-                    this.send_state.nearby_devices.len()
-                );
                 cx.notify();
             });
         })
         .detach();
+    }
+
+    pub(super) fn ensure_has_selected_files(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.send_state.selected_files.is_empty() {
+            self.open_simple_notice_dialog("请先选择要发送的文件或文本", window, cx);
+            false
+        } else {
+            true
+        }
+    }
+
+    pub(super) fn open_simple_notice_dialog(
+        &self,
+        message: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let msg = message.to_string();
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            dialog
+                .title("提示")
+                .overlay(true)
+                .w(px(320.))
+                .child(div().w_full().text_sm().child(msg.clone()))
+                .alert()
+                .button_props(
+                    gpui_component::dialog::DialogButtonProps::default().ok_text("确定"),
+                )
+        });
+    }
+
+    pub(super) fn handle_pick_content(
+        &mut self,
+        content_type: SendContentType,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.send_state.send_content_type = content_type;
+        match content_type {
+            SendContentType::Text => self.open_text_input_dialog(window, cx),
+            SendContentType::File => self.open_simple_notice_dialog("文件选择器即将接入。当前可先使用“文本”发送。", window, cx),
+            SendContentType::Folder => self.open_simple_notice_dialog("文件夹选择即将接入。", window, cx),
+            SendContentType::Media => self.open_simple_notice_dialog("剪贴板发送即将接入。", window, cx),
+        }
+    }
+
+    pub(super) fn cycle_send_mode(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.send_state.send_mode = match self.send_state.send_mode {
+            SendMode::Single => SendMode::Multiple,
+            SendMode::Multiple => SendMode::Link,
+            SendMode::Link => SendMode::Single,
+        };
+        let mode_text = match self.send_state.send_mode {
+            SendMode::Single => "单设备发送模式",
+            SendMode::Multiple => "多设备发送模式（基础）",
+            SendMode::Link => "链接分享模式（即将接入）",
+        };
+        if matches!(self.send_state.send_mode, SendMode::Link)
+            && !self.ensure_has_selected_files(window, cx)
+        {
+            self.send_state.send_mode = SendMode::Single;
+            return;
+        }
+        self.open_simple_notice_dialog(mode_text, window, cx);
     }
 
     fn init_select_states(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -329,7 +414,7 @@ impl HomePage {
     pub(super) fn open_text_input_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let input_state = cx.new(|cx| {
             InputState::new(window, cx)
-                .multi_line(true)
+                .auto_grow(3, 5)
                 .placeholder("输入文本内容")
                 .soft_wrap(true)
         });
@@ -343,11 +428,12 @@ impl HomePage {
 
             dialog
                 .title("发送文本")
-                .w(px(360.))
+                .overlay(true)
+                .w(px(340.))
                 .child(
                     div()
                         .w_full()
-                        .child(Input::new(&input_state).h(px(200.)).appearance(true)),
+                        .child(Input::new(&input_state).appearance(true)),
                 )
                 .confirm()
                 .button_props(
@@ -401,6 +487,7 @@ impl HomePage {
 
             dialog
                 .title("发送到设备")
+                .overlay(true)
                 .w(px(360.))
                 .child(
                     v_flex()

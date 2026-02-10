@@ -1,25 +1,29 @@
 //! History page: full-screen route showing transfer history.
 
 use crate::state::history_state::HistoryState;
-use crate::ui::components::history_item::HistoryItem;
 use crate::ui::theme::spacing;
+use chrono::{Datelike, Local, TimeZone as _, Timelike};
 use gpui::{div, prelude::*, px, Context, Entity, Window};
 use gpui_component::scroll::ScrollableElement as _;
 use gpui_component::{
-    button::{Button, ButtonVariants as _},
-    h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _, Size, StyledExt as _,
+    button::{Button, ButtonCustomVariant, ButtonVariants as _},
+    h_flex,
+    popover::Popover,
+    v_flex, ActiveTheme as _, Anchor, Icon, Sizable as _, Size, StyledExt as _, WindowExt as _,
 };
 use gpui_router::RouterState;
 
 /// History page: back bar + title + history list.
 pub struct HistoryPage {
     history_state: Option<Entity<HistoryState>>,
+    open_menu_entry: Option<String>,
 }
 
 impl HistoryPage {
     pub fn new() -> Self {
         Self {
             history_state: None,
+            open_menu_entry: None,
         }
     }
 
@@ -37,6 +41,8 @@ impl gpui::Render for HistoryPage {
             vec![]
         };
         let has_entries = !entries.is_empty();
+        let page_entity = cx.entity();
+        let history_state = self.history_state.clone();
 
         v_flex()
             .size_full()
@@ -51,10 +57,15 @@ impl gpui::Render for HistoryPage {
                     .child(
                         Button::new("history-back")
                             .ghost()
+                            .custom(
+                                ButtonCustomVariant::new(cx)
+                                    .hover(cx.theme().transparent)
+                                    .active(cx.theme().transparent),
+                            )
                             .child(
                                 Icon::default()
                                     .path("icons/arrow-left.svg")
-                                    .with_size(Size::Small),
+                                    .with_size(Size::Large),
                             )
                             .on_click(cx.listener(|_this, _event, window, cx| {
                                 RouterState::global_mut(cx).location.pathname = "/".into();
@@ -65,24 +76,12 @@ impl gpui::Render for HistoryPage {
                         div()
                             .flex_1()
                             .text_center()
-                            .text_base()
-                            .font_semibold()
+                            .text_xl()
+                            .font_bold()
                             .text_color(cx.theme().foreground)
-                            .child("历史记录"),
+                            .child("历史"),
                     )
-                    .when(has_entries, |this| {
-                        this.child(
-                            Button::new("history-clear")
-                                .ghost()
-                                .on_click(cx.listener(|this, _event, _window, cx| {
-                                    if let Some(ref state) = this.history_state {
-                                        state.update(cx, |s, _cx| s.clear());
-                                    }
-                                }))
-                                .child(div().text_sm().text_color(cx.theme().danger).child("清空")),
-                        )
-                    })
-                    .when(!has_entries, |this| this.child(div().w(px(40.)))),
+                    .child(div().w(px(44.))),
             )
             // Content
             .child(
@@ -93,16 +92,250 @@ impl gpui::Render for HistoryPage {
                     .child(if has_entries {
                         v_flex()
                             .w_full()
+                            .max_w(px(960.))
+                            .mx_auto()
                             .px(px(15.))
-                            .gap(spacing::SM)
+                            .py(px(10.))
+                            .gap(spacing::LG)
+                            .child(
+                                h_flex()
+                                    .gap(px(20.))
+                                    .items_center()
+                                    .child(
+                                        Button::new("history-open-folder")
+                                            .outline()
+                                            .rounded_full()
+                                            .px(px(24.))
+                                            .py(px(12.))
+                                            .on_click(cx.listener(|this, _event, window, cx| {
+                                                this.open_notice_dialog(
+                                                    "打开目录功能即将接入。",
+                                                    window,
+                                                    cx,
+                                                );
+                                            }))
+                                            .child(
+                                                h_flex()
+                                                    .items_center()
+                                                    .gap(px(8.))
+                                                    .child(
+                                                        Icon::default()
+                                                            .path("icons/folder.svg")
+                                                            .with_size(Size::Medium),
+                                                    )
+                                                    .child("打开目录"),
+                                            ),
+                                    )
+                                    .child(
+                                        Button::new("history-clear")
+                                            .outline()
+                                            .rounded_full()
+                                            .px(px(24.))
+                                            .py(px(12.))
+                                            .on_click(cx.listener(|this, _event, window, cx| {
+                                                this.open_clear_history_dialog(window, cx);
+                                            }))
+                                            .child(
+                                                h_flex()
+                                                    .items_center()
+                                                    .gap(px(8.))
+                                                    .child(
+                                                        Icon::default()
+                                                            .path("icons/trash.svg")
+                                                            .with_size(Size::Medium),
+                                                    )
+                                                    .child("删除历史"),
+                                            ),
+                                    ),
+                            )
+                            .child(div().h(px(4.)))
                             .children(entries.into_iter().map(|entry| {
-                                HistoryItem::new(entry)
-                                    .on_open(|_id, _window, _cx| {
-                                        log::info!("Open history entry");
-                                    })
-                                    .on_delete(|id, _window, _cx| {
-                                        log::info!("Delete history entry: {}", id);
-                                    })
+                                let entry_id = entry.id.clone();
+                                let menu_open = self.open_menu_entry.as_ref() == Some(&entry_id);
+                                let file_name = entry.file_name.clone();
+                                let subline = format!(
+                                    "{} - {} - {}",
+                                    format_timestamp(entry.timestamp),
+                                    format_file_size(entry.file_size),
+                                    entry.device_name
+                                );
+
+                                let history_state_for_delete = history_state.clone();
+                                let page_for_delete = page_entity.clone();
+                                let page_for_open_change = page_entity.clone();
+                                let page_for_open_action = page_entity.clone();
+                                let page_for_info = page_entity.clone();
+                                let entry_for_info = entry.clone();
+                                let entry_for_open = entry.clone();
+                                let entry_id_open_change = entry_id.clone();
+                                let entry_id_for_open = entry_id.clone();
+                                let entry_id_for_delete = entry_id.clone();
+
+                                h_flex()
+                                    .w_full()
+                                    .items_center()
+                                    .gap(px(12.))
+                                    .child(
+                                        div()
+                                            .w(px(84.))
+                                            .h(px(84.))
+                                            .rounded_lg()
+                                            .bg(cx.theme().primary.opacity(0.14))
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .child(
+                                                Icon::default()
+                                                    .path(icon_for_entry(&entry.file_name))
+                                                    .with_size(Size::Large)
+                                                    .text_color(cx.theme().primary),
+                                            ),
+                                    )
+                                    .child(
+                                        v_flex()
+                                            .flex_1()
+                                            .gap(px(4.))
+                                            .child(
+                                                div()
+                                                    .text_xl()
+                                                    .font_medium()
+                                                    .text_color(cx.theme().foreground)
+                                                    .child(file_name),
+                                            )
+                                            .child(
+                                                div()
+                                                    .text_lg()
+                                                    .text_color(cx.theme().muted_foreground)
+                                                    .child(subline),
+                                            ),
+                                    )
+                                    .child(
+                                        Popover::new(format!("history-menu-{}", entry_id))
+                                            .anchor(Anchor::BottomRight)
+                                            .open(menu_open)
+                                            .on_open_change(move |open, _window, cx| {
+                                                page_for_open_change.update(cx, |this, _cx| {
+                                                    if *open {
+                                                        this.open_menu_entry =
+                                                            Some(entry_id_open_change.clone());
+                                                    } else if this.open_menu_entry.as_ref()
+                                                        == Some(&entry_id_open_change)
+                                                    {
+                                                        this.open_menu_entry = None;
+                                                    }
+                                                });
+                                            })
+                                            .trigger(
+                                                Button::new(format!("history-more-{}", entry_id))
+                                                    .ghost()
+                                                    .rounded_full()
+                                                    .p(px(8.))
+                                                    .child(
+                                                        Icon::default()
+                                                            .path("icons/more-horizontal.svg")
+                                                            .with_size(Size::Large),
+                                                    ),
+                                            )
+                                            .content(move |_state, _window, _cx| {
+                                                v_flex()
+                                                    .w(px(240.))
+                                                    .gap(px(2.))
+                                                    .child(
+                                                        Button::new(format!(
+                                                            "history-entry-info-{}",
+                                                            entry_id_for_open
+                                                        ))
+                                                        .ghost()
+                                                        .w_full()
+                                                        .justify_start()
+                                                        .on_click({
+                                                            let page_for_info =
+                                                                page_for_info.clone();
+                                                            let entry_for_info =
+                                                                entry_for_info.clone();
+                                                            move |_event, window, cx| {
+                                                                page_for_info.update(
+                                                                    cx,
+                                                                    |this, _cx| {
+                                                                        this.open_menu_entry = None;
+                                                                    },
+                                                                );
+                                                                open_entry_info_dialog(
+                                                                    &entry_for_info,
+                                                                    window,
+                                                                    cx,
+                                                                );
+                                                            }
+                                                        })
+                                                        .child("信息"),
+                                                    )
+                                                    .child(
+                                                        Button::new(format!(
+                                                            "history-entry-delete-{}",
+                                                            entry_id_for_delete
+                                                        ))
+                                                        .ghost()
+                                                        .w_full()
+                                                        .justify_start()
+                                                        .on_click({
+                                                            let history_state_for_delete =
+                                                                history_state_for_delete.clone();
+                                                            let page_for_delete =
+                                                                page_for_delete.clone();
+                                                            let entry_id_for_delete =
+                                                                entry_id_for_delete.clone();
+                                                            move |_event, _window, cx| {
+                                                                if let Some(ref state) =
+                                                                    history_state_for_delete
+                                                                {
+                                                                    state.update(cx, |s, _cx| {
+                                                                        s.remove_entry(
+                                                                            &entry_id_for_delete,
+                                                                        );
+                                                                    });
+                                                                }
+                                                                page_for_delete.update(
+                                                                    cx,
+                                                                    |this, _cx| {
+                                                                        this.open_menu_entry = None;
+                                                                    },
+                                                                );
+                                                            }
+                                                        })
+                                                        .child("从历史记录中删除"),
+                                                    )
+                                                    .when(entry_for_open.file_path.exists(), |this| {
+                                                        this.child(
+                                                            Button::new(format!(
+                                                                "history-entry-open-{}",
+                                                                entry_id_for_open
+                                                            ))
+                                                            .ghost()
+                                                            .w_full()
+                                                            .justify_start()
+                                                            .on_click({
+                                                                let page_for_open_action =
+                                                                    page_for_open_action.clone();
+                                                                move |_event, window, cx| {
+                                                                    page_for_open_action.update(
+                                                                        cx,
+                                                                        |this, _cx| {
+                                                                            this.open_menu_entry =
+                                                                                None;
+                                                                        },
+                                                                    );
+                                                                    open_notice_dialog(
+                                                                        "打开文件功能即将接入。",
+                                                                        window,
+                                                                        cx,
+                                                                    );
+                                                                }
+                                                            })
+                                                            .child("打开"),
+                                                        )
+                                                    })
+                                            }),
+                                    )
                             }))
                             .into_any_element()
                     } else {
@@ -118,21 +351,125 @@ impl gpui::Render for HistoryPage {
                                     .items_center()
                                     .gap(spacing::MD)
                                     .child(
-                                        Icon::default()
-                                            .path("icons/history.svg")
-                                            .with_size(Size::Large)
-                                            .text_color(cx.theme().muted_foreground),
-                                    )
-                                    .child(
                                         div()
+                                            .text_xl()
                                             .text_color(cx.theme().muted_foreground)
-                                            .child("暂无记录"),
+                                            .child("无历史记录"),
                                     ),
                             )
                             .into_any_element()
                     }),
             )
     }
+}
+
+impl HistoryPage {
+    fn open_notice_dialog(&self, message: &str, window: &mut Window, cx: &mut Context<Self>) {
+        open_notice_dialog(message, window, cx);
+    }
+
+    fn open_clear_history_dialog(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let history_state = self.history_state.clone();
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let history_state = history_state.clone();
+            dialog
+                .title("删除历史")
+                .overlay(true)
+                .w(px(340.))
+                .child(div().w_full().text_sm().child("确定删除所有历史记录吗？"))
+                .confirm()
+                .button_props(
+                    gpui_component::dialog::DialogButtonProps::default()
+                        .ok_text("删除")
+                        .cancel_text("取消"),
+                )
+                .on_ok(move |_event, _window, cx| {
+                    if let Some(ref state) = history_state {
+                        state.update(cx, |s, _cx| s.clear());
+                    }
+                    true
+                })
+        });
+    }
+}
+
+fn icon_for_entry(file_name: &str) -> &'static str {
+    let name = file_name.to_lowercase();
+    if [".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".heic"]
+        .iter()
+        .any(|ext| name.ends_with(ext))
+    {
+        "icons/image.svg"
+    } else {
+        "icons/file.svg"
+    }
+}
+
+fn format_file_size(bytes: u64) -> String {
+    if bytes < 1024 {
+        format!("{} B", bytes)
+    } else if bytes < 1024 * 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else if bytes < 1024 * 1024 * 1024 {
+        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+    } else {
+        format!("{:.1} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
+    }
+}
+
+fn format_timestamp(timestamp: u64) -> String {
+    if let Some(dt) = Local.timestamp_opt(timestamp as i64, 0).single() {
+        format!(
+            "{}/{}/{} {:02}:{:02}",
+            dt.year(),
+            dt.month(),
+            dt.day(),
+            dt.hour(),
+            dt.minute()
+        )
+    } else {
+        "-".to_string()
+    }
+}
+
+fn open_entry_info_dialog(entry: &crate::state::history_state::HistoryEntry, window: &mut Window, cx: &mut gpui::App) {
+    let title = entry.file_name.clone();
+    let file_path = entry.file_path.display().to_string();
+    let file_size = format_file_size(entry.file_size);
+    let timestamp = format_timestamp(entry.timestamp);
+    let sender = entry.device_name.clone();
+
+    window.open_dialog(cx, move |dialog, _window, _cx| {
+        dialog
+            .title("信息")
+            .overlay(true)
+            .w(px(360.))
+            .child(
+                v_flex()
+                    .w_full()
+                    .gap(px(8.))
+                    .child(div().text_sm().child(format!("名称: {}", title)))
+                    .child(div().text_sm().child(format!("大小: {}", file_size)))
+                    .child(div().text_sm().child(format!("来源: {}", sender)))
+                    .child(div().text_sm().child(format!("时间: {}", timestamp)))
+                    .child(div().text_sm().child(format!("路径: {}", file_path))),
+            )
+            .alert()
+            .button_props(gpui_component::dialog::DialogButtonProps::default().ok_text("关闭"))
+    });
+}
+
+fn open_notice_dialog(message: &str, window: &mut Window, cx: &mut gpui::App) {
+    let msg = message.to_string();
+    window.open_dialog(cx, move |dialog, _window, _cx| {
+        dialog
+            .title("提示")
+            .overlay(true)
+            .w(px(320.))
+            .child(div().w_full().text_sm().child(msg.clone()))
+            .alert()
+            .button_props(gpui_component::dialog::DialogButtonProps::default().ok_text("确定"))
+    });
 }
 
 impl Default for HistoryPage {

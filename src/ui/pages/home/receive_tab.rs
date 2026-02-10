@@ -3,7 +3,6 @@
 use super::HomePage;
 use super::QuickSaveMode;
 use crate::ui::components::logo::Logo;
-use crate::ui::components::rotating_widget::RotatingWidget;
 use crate::ui::theme::spacing;
 use gpui::{div, prelude::*, px, AnyElement, Context, Window};
 use gpui_component::scroll::ScrollableElement as _;
@@ -140,18 +139,19 @@ pub fn render_receive_content(
                             .justify_center()
                             .gap(spacing::MD)
                             .child(
-                                RotatingWidget::new(
-                                    div()
-                                        .w(px(200.))
-                                        .h(px(200.))
-                                        .flex_none()
-                                        .flex()
-                                        .items_center()
-                                        .justify_center()
-                                        .child(Logo::default().size(200.)),
-                                )
-                                .spinning(server_running && animations)
-                                .duration(15),
+                                div()
+                                    .w(px(200.))
+                                    .h(px(200.))
+                                    .flex_none()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .child(
+                                        Logo::default()
+                                            .size(200.)
+                                            .spinning(server_running && animations)
+                                            .duration(15),
+                                    ),
                             )
                             .child(
                                 div()

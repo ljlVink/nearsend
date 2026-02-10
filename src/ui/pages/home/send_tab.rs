@@ -7,7 +7,7 @@ use crate::ui::components::{
 };
 use crate::ui::theme::spacing;
 use crate::ui::utils::format_file_size;
-use gpui::{div, prelude::*, px, AnyElement, Context, Window};
+use gpui::{div, prelude::*, px, AnyElement, Context, ScrollHandle, Window};
 use gpui_component::scroll::ScrollableElement as _;
 use gpui_component::{
     button::{Button, ButtonCustomVariant, ButtonVariants as _},
@@ -24,21 +24,27 @@ fn render_content_type_button(
     id: impl Into<gpui::ElementId>,
     icon_path: impl Into<gpui::SharedString>,
     label: &str,
+    selected: bool,
     cx: &mut Context<HomePage>,
     on_click: impl Fn(&mut HomePage, &mut Window, &mut Context<HomePage>) + 'static,
 ) -> AnyElement {
     let icon_path = icon_path.into();
     let primary = cx.theme().primary;
-    let primary_fg = cx.theme().primary_foreground;
+    let bg = if selected { primary } else { cx.theme().secondary };
+    let fg = if selected {
+        cx.theme().primary_foreground
+    } else {
+        cx.theme().foreground
+    };
 
     Button::new(id)
         .flex_none()
         .custom(
             ButtonCustomVariant::new(cx)
-                .color(primary)
-                .foreground(primary_fg)
-                .hover(primary)
-                .active(primary),
+                .color(bg)
+                .foreground(fg)
+                .hover(bg)
+                .active(bg),
         )
         .w(px(CONTENT_BTN_WIDTH))
         .h(px(CONTENT_BTN_HEIGHT))
@@ -55,13 +61,13 @@ fn render_content_type_button(
                     Icon::default()
                         .path(icon_path.clone())
                         .with_size(gpui_component::Size::Medium)
-                        .text_color(primary_fg),
+                        .text_color(fg),
                 )
                 .child(
                     div()
                         .text_sm()
                         .text_center()
-                        .text_color(primary_fg)
+                        .text_color(fg)
                         .child(label.to_string()),
                 ),
         )
@@ -100,15 +106,29 @@ fn render_action_button(
 
 pub fn render_send_content(
     app: &mut HomePage,
-    _window: &mut Window,
+    window: &mut Window,
     cx: &mut Context<HomePage>,
 ) -> AnyElement {
+    if !app.send_state.has_scanned_once
+        && !app.send_state.scanning
+        && app.send_state.nearby_devices.is_empty()
+    {
+        app.start_discovery_scan(cx);
+    }
+
     let selected_files = app.send_state.selected_files.clone();
     let has_files = !selected_files.is_empty();
     let scanning = app.send_state.scanning;
+    let send_content_type = app.send_state.send_content_type;
     let total_size = app.send_state.selected_files_total_size;
     let animations = app.settings_state.animations;
     let home_entity = cx.entity();
+    let select_row_scroll = window
+        .use_keyed_state("send-select-row-scroll", cx, |_, _| {
+            ScrollHandle::default()
+        })
+        .read(cx)
+        .clone();
 
     v_flex()
     .size_full()
@@ -133,7 +153,7 @@ pub fn render_send_content(
                             .px(px(15.))
                             .child(
                                 div()
-                                    .text_base()
+                                    .text_lg()
                                     .font_weight(gpui::FontWeight::BLACK)
                                     .text_color(cx.theme().foreground)
                                     .child("选择"),
@@ -143,41 +163,73 @@ pub fn render_send_content(
                     .child(
                         div()
                             .px(px(15.))
-                            .overflow_x_scrollbar()
                             .child(
-                                h_flex()
-                                    .gap(px(10.))
-                                    .items_center()
-                                    .child(render_content_type_button(
-                                        "content-file",
-                                        "icons/file.svg",
-                                        "文件",
-                                        cx,
-                                        |_this, _window, _cx| log::info!("Pick file"),
-                                    ))
-                                    .child(render_content_type_button(
-                                        "content-media",
-                                        "icons/play.svg",
-                                        "媒体",
-                                        cx,
-                                        |_this, _window, _cx| log::info!("Pick media"),
-                                    ))
-                                    .child(render_content_type_button(
-                                        "content-text",
-                                        "icons/book-open.svg",
-                                        "文本",
-                                        cx,
-                                        |this, window, cx| {
-                                            this.open_text_input_dialog(window, cx);
-                                        },
-                                    ))
-                                    .child(render_content_type_button(
-                                        "content-folder",
-                                        "icons/folder.svg",
-                                        "文件夹",
-                                        cx,
-                                        |_this, _window, _cx| log::info!("Pick folder"),
-                                    )),
+                                div()
+                                    .id("send-content-type-scroll")
+                                    .w_full()
+                                    .track_scroll(&select_row_scroll)
+                                    .overflow_x_scroll()
+                                    .child(
+                                        h_flex()
+                                            .gap(px(10.))
+                                            .items_center()
+                                            .child(render_content_type_button(
+                                                "content-file",
+                                                "icons/file.svg",
+                                                "文件",
+                                                send_content_type == super::SendContentType::File,
+                                                cx,
+                                                |this, window, cx| {
+                                                    this.handle_pick_content(
+                                                        super::SendContentType::File,
+                                                        window,
+                                                        cx,
+                                                    );
+                                                },
+                                            ))
+                                            .child(render_content_type_button(
+                                                "content-folder",
+                                                "icons/folder.svg",
+                                                "文件夹",
+                                                send_content_type == super::SendContentType::Folder,
+                                                cx,
+                                                |this, window, cx| {
+                                                    this.handle_pick_content(
+                                                        super::SendContentType::Folder,
+                                                        window,
+                                                        cx,
+                                                    );
+                                                },
+                                            ))
+                                            .child(render_content_type_button(
+                                                "content-text",
+                                                "icons/book-open.svg",
+                                                "文本",
+                                                send_content_type == super::SendContentType::Text,
+                                                cx,
+                                                |this, window, cx| {
+                                                    this.handle_pick_content(
+                                                        super::SendContentType::Text,
+                                                        window,
+                                                        cx,
+                                                    );
+                                                },
+                                            ))
+                                            .child(render_content_type_button(
+                                                "content-clipboard",
+                                                "icons/external-link.svg",
+                                                "剪贴板",
+                                                send_content_type == super::SendContentType::Media,
+                                                cx,
+                                                |this, window, cx| {
+                                                    this.handle_pick_content(
+                                                        super::SendContentType::Media,
+                                                        window,
+                                                        cx,
+                                                    );
+                                                },
+                                            )),
+                                    ),
                             ),
                     )
                     // -- Selected files card --
@@ -318,11 +370,11 @@ pub fn render_send_content(
                             .pt(px(5.))
                             .child(
                                 h_flex()
-                                    .justify_between()
+                                    .gap(px(16.))
                                     .items_center()
                                     .child(
                                         div()
-                                            .text_base()
+                                            .text_lg()
                                             .font_weight(gpui::FontWeight::BLACK)
                                             .text_color(cx.theme().foreground)
                                             .child("附近的设备"),
@@ -339,7 +391,7 @@ pub fn render_send_content(
                                                         RotatingWidget::new(
                                                             render_action_button(
                                                                 "send-scan",
-                                                                "icons/loader.svg",
+                                                                "icons/refresh.svg",
                                                                 cx,
                                                                 |this, _window, cx| {
                                                                     this.start_discovery_scan(cx);
@@ -357,6 +409,9 @@ pub fn render_send_content(
                                                 "icons/target.svg",
                                                 cx,
                                                 |this, window, cx| {
+                                                    if !this.ensure_has_selected_files(window, cx) {
+                                                        return;
+                                                    }
                                                     this.open_send_to_address_dialog(window, cx);
                                                 },
                                             ))
@@ -365,14 +420,19 @@ pub fn render_send_content(
                                                 "send-favorites",
                                                 "icons/heart.svg",
                                                 cx,
-                                                |_this, _window, _cx| log::info!("Favorites clicked"),
+                                                |this, window, cx| {
+                                                    if !this.ensure_has_selected_files(window, cx) {
+                                                        return;
+                                                    }
+                                                    this.open_simple_notice_dialog("收藏夹发送即将接入。", window, cx);
+                                                },
                                             ))
                                             // Send mode button
                                             .child(render_action_button(
                                                 "send-mode",
                                                 "icons/settings.svg",
                                                 cx,
-                                                |_this, _window, _cx| log::info!("Send mode clicked"),
+                                                |this, window, cx| this.cycle_send_mode(window, cx),
                                             )),
                                     ),
                             ),
@@ -398,6 +458,9 @@ pub fn render_send_content(
                                                 .on_select(move |device, window, cx| {
                                                     let device = device.clone();
                                                     home_entity.update(cx, |this, cx| {
+                                                        if !this.ensure_has_selected_files(window, cx) {
+                                                            return;
+                                                        }
                                                         this.send_state.target_device = Some(device);
                                                         if let Some(endpoint) = this
                                                             .send_state
@@ -428,8 +491,8 @@ pub fn render_send_content(
                             .child(
                                 Button::new("troubleshoot")
                                     .ghost()
-                                    .on_click(cx.listener(|_this, _event, _window, _cx| {
-                                        log::info!("Troubleshoot clicked");
+                                    .on_click(cx.listener(|this, _event, window, cx| {
+                                        this.open_simple_notice_dialog("请确认目标设备与本机在同一 Wi-Fi 网络。", window, cx);
                                     }))
                                     .child("故障排查"),
                             ),
