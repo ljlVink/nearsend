@@ -58,7 +58,11 @@ impl gpui::RenderOnce for BigButton {
                 gpui_component::button::ButtonVariant::Secondary
             })
             .w(px(button_width))
-            .h(px(Self::HEIGHT));
+            .h(px(Self::HEIGHT))
+            .rounded_md()
+            .px(px(2.))
+            .pt(px(10.))
+            .pb(px(8.));
 
         if !filled {
             button = button.outline();

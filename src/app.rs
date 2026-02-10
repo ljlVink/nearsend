@@ -80,35 +80,14 @@ impl gpui::Render for NearSendApp {
                     }),
             )
             .child(
-                // Bottom Navigation Bar (mobile style)
+                // Bottom Navigation Bar matching LocalSend mobile
                 div()
                     .w_full()
                     .bg(cx.theme().background)
                     .border_t_1()
                     .border_color(cx.theme().border)
-                    .p_2()
-                    .child(
-                        TabBar::new("main-tabs")
-                            .w_full()
-                            .selected_index(match self.current_tab {
-                                TabType::Receive => 0,
-                                TabType::Send => 1,
-                                TabType::Settings => 2,
-                            })
-                            .on_click(cx.listener(|this, index, _window, _cx| {
-                                this.current_tab = match *index {
-                                    0 => TabType::Receive,
-                                    1 => TabType::Send,
-                                    2 => TabType::Settings,
-                                    _ => TabType::Receive,
-                                };
-                            }))
-                            .children([
-                                Tab::new().label("Receive"),
-                                Tab::new().label("Send"),
-                                Tab::new().label("Settings"),
-                            ]),
-                    ),
+                    .py(px(6.))
+                    .child(self.render_bottom_nav(cx)),
             )
             .children(sheet_layer)
             .children(dialog_layer)
@@ -117,20 +96,87 @@ impl gpui::Render for NearSendApp {
 }
 
 impl NearSendApp {
+    fn render_bottom_nav(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let items = [
+            (TabType::Receive, "Receive", "📥"),
+            (TabType::Send, "Send", "📤"),
+            (TabType::Settings, "Settings", "⚙️"),
+        ];
+
+        h_flex()
+            .w_full()
+            .items_center()
+            .children(items.iter().map(|(tab, label, icon)| {
+                div().flex_1().child(self.render_bottom_nav_item(*tab, label, icon, cx))
+            }))
+            .into_any_element()
+    }
+
+    fn render_bottom_nav_item(
+        &mut self,
+        tab: TabType,
+        label: &'static str,
+        icon: &'static str,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        use gpui_component::button::ButtonVariants as _;
+
+        let selected = self.current_tab == tab;
+        let button_id = format!("tab-{}", label.to_lowercase());
+
+        gpui_component::button::Button::new(button_id)
+            .ghost()
+            .w_full()
+            .on_click(cx.listener(move |this, _event, _window, _cx| {
+                this.current_tab = tab;
+            }))
+            .child(
+                div()
+                    .w_full()
+                    .h(px(56.))
+                    .py(px(6.))
+                    .rounded_md()
+                    .when(selected, |this| this.bg(cx.theme().secondary))
+                    .child(
+                        v_flex()
+                            .items_center()
+                            .gap(px(2.))
+                            .text_color(if selected {
+                                cx.theme().foreground
+                            } else {
+                                cx.theme().muted_foreground
+                            })
+                            .child(
+                                div()
+                                    .h(px(22.))
+                                    .items_center()
+                                    .justify_center()
+                                    .text_xl()
+                                    .child(icon),
+                            )
+                            .child(div().text_sm().child(label)),
+                    ),
+            )
+            .into_any_element()
+    }
+
     /// Render receive page content
     fn render_receive_content(
         &mut self,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        use crate::ui::components::{logo::Logo, rotating_widget::RotatingWidget};
+        use crate::ui::components::{
+            animated_crossfade::AnimatedCrossFade, animated_opacity::AnimatedOpacity,
+            custom_icon_button::CustomIconButton, logo::Logo, rotating_widget::RotatingWidget,
+        };
         use crate::ui::theme::{sizing, spacing};
         use gpui_component::scroll::ScrollableElement as _;
         use gpui_component::{
             button::{Button, ButtonVariants as _},
             h_flex,
             tab::{Tab, TabBar},
-            v_flex,
+            v_flex, Size, Sizable as _,
         };
 
         let show_advanced = self.receive_state.show_advanced;
@@ -179,7 +225,8 @@ impl NearSendApp {
                                             .child(
                                                 // Alias with FittedBox (scaleDown) matching localsend
                                                 div()
-                                                    .text_2xl()
+                                                    .max_w(px(520.))
+                                                    .text_3xl()
                                                     .font_bold()
                                                     .text_color(cx.theme().foreground)
                                                     .text_center()
@@ -188,7 +235,8 @@ impl NearSendApp {
                                             .child(
                                                 // IP display with InitialFadeTransition delay
                                                 div()
-                                                    .text_2xl()
+                                                    .max_w(px(520.))
+                                                    .text_xl()
                                                     .text_color(cx.theme().muted_foreground)
                                                     .text_center()
                                                     .child(
@@ -220,7 +268,9 @@ impl NearSendApp {
                                                 )
                                                 .child(
                                                     TabBar::new("quick-save")
+                                                        .w_full()
                                                         .segmented()
+                                                        .with_size(Size::Small)
                                                         .selected_index(match quick_save_mode {
                                                             QuickSaveMode::Off => 0,
                                                             QuickSaveMode::Favorites => 1,
@@ -239,9 +289,9 @@ impl NearSendApp {
                                                             },
                                                         ))
                                                         .children([
-                                                            Tab::new().label("Off"),
-                                                            Tab::new().label("Favorites"),
-                                                            Tab::new().label("On"),
+                                                            Tab::new().flex_1().label("Off"),
+                                                            Tab::new().flex_1().label("Favorites"),
+                                                            Tab::new().flex_1().label("On"),
                                                         ]),
                                                 ),
                                         ),
@@ -257,20 +307,17 @@ impl NearSendApp {
                     h_flex()
                         .gap(spacing::SM)
                         .justify_end()
-                        .child(div().when(!show_advanced && show_history_button, |this| {
-                            // AnimatedOpacity matching localsend
-                            this.child(div().when(show_history_button, |this| {
-                                this.child(
-                                    Button::new("history")
-                                        .ghost()
-                                        .rounded_full()
-                                        .p(px(8.))
-                                        .on_click(cx.listener(|_this, _event, _window, _cx| {
-                                            log::info!("History clicked");
-                                        }))
-                                        .child("📜"),
+                        .child(div().when(!show_advanced, |this| {
+                            this.child(
+                                AnimatedOpacity::new(
+                                    "receive-history",
+                                    if show_history_button { 1.0 } else { 0.0 },
+                                    CustomIconButton::new("history", "📜").on_click(|_window, _cx| {
+                                        log::info!("History clicked");
+                                    }),
                                 )
-                            }))
+                                .duration_ms(200),
+                            )
                         }))
                         .child(
                             Button::new("info")
@@ -291,86 +338,90 @@ impl NearSendApp {
                     .absolute()
                     .top(px(15.))
                     .right(px(15.))
-                    .when(show_advanced, |this| {
-                        this.child(
-                            div()
-                                .bg(cx.theme().secondary)
-                                .border_1()
-                                .border_color(cx.theme().border)
-                                .rounded_lg()
-                                .p(px(15.))
-                                .shadow_lg()
-                                .child(
-                                    // Table layout matching localsend exactly
-                                    v_flex()
-                                        .gap(spacing::SM)
-                                        .child(
-                                            // Alias row - TableRow equivalent
-                                            h_flex()
-                                                .gap(px(10.))
-                                                .items_start()
-                                                .child(
-                                                    div()
-                                                        .text_sm()
-                                                        .text_color(cx.theme().muted_foreground)
-                                                        .child("Alias:"),
-                                                )
-                                                .child(
-                                                    div()
-                                                        .text_sm()
-                                                        .text_color(cx.theme().foreground)
-                                                        .pr(px(30.))
-                                                        .child(server_alias.clone()),
-                                                ),
-                                        )
-                                        .child(
-                                            // IP row - TableRow with Column for multiple IPs
-                                            h_flex()
-                                                .gap(px(10.))
-                                                .items_start()
-                                                .child(
-                                                    div()
-                                                        .text_sm()
-                                                        .text_color(cx.theme().muted_foreground)
-                                                        .child("IP:"),
-                                                )
-                                                .child(if server_ips.is_empty() {
-                                                    div()
-                                                        .text_sm()
-                                                        .text_color(cx.theme().foreground)
-                                                        .child("Unknown")
-                                                } else {
-                                                    v_flex().gap(px(2.)).items_start().children(
-                                                        server_ips.iter().map(|ip| {
-                                                            div()
-                                                                .text_sm()
-                                                                .text_color(cx.theme().foreground)
-                                                                .child(ip.clone())
-                                                        }),
+                    .child(
+                        AnimatedCrossFade::new("receive-info", show_advanced)
+                            .duration_ms(200)
+                            .first(div())
+                            .second(
+                                div()
+                                    .bg(cx.theme().secondary)
+                                    .border_1()
+                                    .border_color(cx.theme().border)
+                                    .rounded_lg()
+                                    .p(px(15.))
+                                    .shadow_lg()
+                                    .child(
+                                        // Table layout matching localsend exactly
+                                        v_flex()
+                                            .gap(spacing::SM)
+                                            .child(
+                                                // Alias row - TableRow equivalent
+                                                h_flex()
+                                                    .gap(px(10.))
+                                                    .items_start()
+                                                    .child(
+                                                        div()
+                                                            .text_sm()
+                                                            .text_color(cx.theme().muted_foreground)
+                                                            .child("Alias:"),
                                                     )
-                                                }),
-                                        )
-                                        .child(
-                                            // Port row - TableRow
-                                            h_flex()
-                                                .gap(px(10.))
-                                                .items_start()
-                                                .child(
-                                                    div()
-                                                        .text_sm()
-                                                        .text_color(cx.theme().muted_foreground)
-                                                        .child("Port:"),
-                                                )
-                                                .child(
-                                                    div()
-                                                        .text_sm()
-                                                        .text_color(cx.theme().foreground)
-                                                        .child(server_port.to_string()),
-                                                ),
-                                        ),
-                                ),
-                        )
-                    }),
+                                                    .child(
+                                                        div()
+                                                            .text_sm()
+                                                            .text_color(cx.theme().foreground)
+                                                            .pr(px(30.))
+                                                            .child(server_alias.clone()),
+                                                    ),
+                                            )
+                                            .child(
+                                                // IP row - TableRow with Column for multiple IPs
+                                                h_flex()
+                                                    .gap(px(10.))
+                                                    .items_start()
+                                                    .child(
+                                                        div()
+                                                            .text_sm()
+                                                            .text_color(cx.theme().muted_foreground)
+                                                            .child("IP:"),
+                                                    )
+                                                    .child(if server_ips.is_empty() {
+                                                        div()
+                                                            .text_sm()
+                                                            .text_color(cx.theme().foreground)
+                                                            .child("Unknown")
+                                                    } else {
+                                                        v_flex()
+                                                            .gap(px(2.))
+                                                            .items_start()
+                                                            .children(server_ips.iter().map(|ip| {
+                                                                div()
+                                                                    .text_sm()
+                                                                    .text_color(cx.theme().foreground)
+                                                                    .child(ip.clone())
+                                                            }))
+                                                    }),
+                                            )
+                                            .child(
+                                                // Port row - TableRow
+                                                h_flex()
+                                                    .gap(px(10.))
+                                                    .items_start()
+                                                    .child(
+                                                        div()
+                                                            .text_sm()
+                                                            .text_color(cx.theme().muted_foreground)
+                                                            .child("Port:"),
+                                                    )
+                                                    .child(
+                                                        div()
+                                                            .text_sm()
+                                                            .text_color(cx.theme().foreground)
+                                                            .child(server_port.to_string()),
+                                                    ),
+                                            ),
+                                    ),
+                            ),
+                    ),
             )
             .into_any_element()
     }
@@ -378,8 +429,10 @@ impl NearSendApp {
     /// Render send page content
     fn render_send_content(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         use crate::ui::components::{
-            big_button::BigButton, device_card::DeviceCard, device_placeholder::DevicePlaceholder,
-            opacity_slideshow::OpacitySlideshow, rotating_widget::RotatingWidget,
+            big_button::BigButton, custom_icon_button::CustomIconButton,
+            device_card::DeviceCard, device_placeholder::DevicePlaceholder,
+            opacity_slideshow::OpacitySlideshow, responsive_wrap_view::ResponsiveWrapView,
+            rotating_widget::RotatingWidget,
         };
         use crate::ui::theme::{sizing, spacing};
         use crate::ui::utils::format_file_size;
@@ -394,6 +447,7 @@ impl NearSendApp {
         let scanning = self.send_state.scanning;
         let total_size = self.send_state.selected_files_total_size;
         let animations = self.settings_state.animations;
+        let local_ip_count = self.send_state.local_ips.len();
 
         v_flex()
             .size_full()
@@ -425,50 +479,30 @@ impl NearSendApp {
                                     )
                                     .when(!has_files, |this| {
                                         this.child(
-                                            // ResponsiveWrapView matching localsend exactly
-                                            // For now, use simple h_flex with wrap until we can properly implement ResponsiveWrapView
-                                            div()
-                                                .px(px(15.))
-                                                .py(px(10.))
+                                            ResponsiveWrapView::new(BigButton::MOBILE_WIDTH)
+                                                .outer_horizontal_padding(15.0)
+                                                .outer_vertical_padding(10.0)
+                                                .child_padding(10.0)
                                                 .child(
-                                                    h_flex()
-                                                        .gap(px(10.))
-                                                        .flex_wrap()
-                                                        .w_full()
-                                                        .justify_center()
-                                                        .child(
-                                                            div()
-                                                                .w(px(200.))
-                                                                .child(
-                                                                    BigButton::new("📷", "Photos")
-                                                                        .filled(false)
-                                                                        .on_tap(|_window, _cx| {
-                                                                            log::info!("Photos clicked");
-                                                                        }),
-                                                                ),
-                                                        )
-                                                        .child(
-                                                            div()
-                                                                .w(px(200.))
-                                                                .child(
-                                                                    BigButton::new("🎥", "Videos")
-                                                                        .filled(false)
-                                                                        .on_tap(|_window, _cx| {
-                                                                            log::info!("Videos clicked");
-                                                                        }),
-                                                                ),
-                                                        )
-                                                        .child(
-                                                            div()
-                                                                .w(px(200.))
-                                                                .child(
-                                                                    BigButton::new("📄", "Files")
-                                                                        .filled(false)
-                                                                        .on_tap(|_window, _cx| {
-                                                                            log::info!("Files clicked");
-                                                                        }),
-                                                                ),
-                                                        ),
+                                                    BigButton::new("📷", "Photos")
+                                                        .filled(false)
+                                                        .on_tap(|_window, _cx| {
+                                                            log::info!("Photos clicked");
+                                                        }),
+                                                )
+                                                .child(
+                                                    BigButton::new("🎥", "Videos")
+                                                        .filled(false)
+                                                        .on_tap(|_window, _cx| {
+                                                            log::info!("Videos clicked");
+                                                        }),
+                                                )
+                                                .child(
+                                                    BigButton::new("📄", "Files")
+                                                        .filled(false)
+                                                        .on_tap(|_window, _cx| {
+                                                            log::info!("Files clicked");
+                                                        }),
                                                 ),
                                         )
                                     })
@@ -566,7 +600,13 @@ impl NearSendApp {
                                                                         .on_click(cx.listener(|_this, _event, _window, _cx| {
                                                                             log::info!("Add clicked");
                                                                         }))
-                                                                        .child("Add"),
+                                                                        .child(
+                                                                            h_flex()
+                                                                                .items_center()
+                                                                                .gap(px(6.))
+                                                                                .child("➕")
+                                                                                .child("Add"),
+                                                                        ),
                                                                 ),
                                                         ),
                                                 ),
@@ -626,57 +666,62 @@ impl NearSendApp {
                                                                                 .border_1()
                                                                                 .border_color(cx.theme().border)
                                                                                 .rounded_lg()
+                                                                                .overflow_hidden()
                                                                                 .shadow_lg()
-                                                                                .p(px(12.)) // padding left: 12, right: 8
+                                                                                .py(px(6.))
                                                                                 .child(
                                                                                     v_flex()
-                                                                                        .gap(px(4.))
-                                                                                        .children(self.send_state.local_ips.iter().map(|ip| {
-                                                                                            h_flex()
-                                                                                                .gap(px(10.))
-                                                                                                .items_center()
-                                                                                                .child(
-                                                                                                    RotatingWidget::new(
-                                                                                                        div().text_sm().child("🔄")
+                                                                                        .children(self.send_state.local_ips.iter().enumerate().flat_map(|(index, ip)| {
+                                                                                            let mut items = Vec::new();
+                                                                                            items.push(
+                                                                                                h_flex()
+                                                                                                    .gap(px(10.))
+                                                                                                    .items_center()
+                                                                                                    .px(px(12.))
+                                                                                                    .py(px(6.))
+                                                                                                    .child(
+                                                                                                        RotatingWidget::new(
+                                                                                                            div().text_sm().child("🔄")
+                                                                                                        )
+                                                                                                        .spinning(false) // TODO: Check if this IP is scanning
+                                                                                                        .reverse(true)
+                                                                                                        .duration(2),
                                                                                                     )
-                                                                                                    .spinning(false) // TODO: Check if this IP is scanning
-                                                                                                    .reverse(true)
-                                                                                                    .duration(2),
-                                                                                                )
-                                                                                                .child(
-                                                                                                    Button::new(format!("scan-{}", ip))
-                                                                                                        .ghost()
-                                                                                                        .w_full()
-                                                                                                        .on_click(cx.listener(move |this, _event, _window, _cx| {
-                                                                                                            this.send_state.show_scan_menu = false;
-                                                                                                            this.send_state.scanning = true;
-                                                                                                        }))
-                                                                                                        .child(ip.clone())
-                                                                                                )
+                                                                                                    .child(
+                                                                                                        Button::new(format!("scan-{}", ip))
+                                                                                                            .ghost()
+                                                                                                            .w_full()
+                                                                                                            .on_click(cx.listener(move |this, _event, _window, _cx| {
+                                                                                                                this.send_state.show_scan_menu = false;
+                                                                                                                this.send_state.scanning = true;
+                                                                                                            }))
+                                                                                                            .child(ip.clone())
+                                                                                                    )
+                                                                                                    .into_any_element(),
+                                                                                            );
+                                                                                            if index + 1 < local_ip_count {
+                                                                                                items.push(
+                                                                                                    div()
+                                                                                                        .h(px(1.))
+                                                                                                        .bg(cx.theme().border)
+                                                                                                        .into_any_element(),
+                                                                                                );
+                                                                                            }
+                                                                                            items
                                                                                         })),
                                                                                 ),
                                                                         )
                                                                     }),
                                                             )
                                                             .child(
-                                                                Button::new("manual")
-                                                                    .ghost()
-                                                                    .rounded_full()
-                                                                    .p(px(8.))
-                                                                    .on_click(cx.listener(|_this, _event, _window, _cx| {
-                                                                        log::info!("Manual address clicked");
-                                                                    }))
-                                                                    .child("📍"),
+                                                                CustomIconButton::new("manual", "📍").on_click(|_window, _cx| {
+                                                                    log::info!("Manual address clicked");
+                                                                }),
                                                             )
                                                             .child(
-                                                                Button::new("favorites")
-                                                                    .ghost()
-                                                                    .rounded_full()
-                                                                    .p(px(8.))
-                                                                    .on_click(cx.listener(|_this, _event, _window, _cx| {
-                                                                        log::info!("Favorites clicked");
-                                                                    }))
-                                                                    .child("⭐"),
+                                                                CustomIconButton::new("favorites", "⭐").on_click(|_window, _cx| {
+                                                                    log::info!("Favorites clicked");
+                                                                }),
                                                             )
                                                             .child(
                                                                 // Send mode button with popup menu matching localsend
@@ -703,16 +748,18 @@ impl NearSendApp {
                                                                                 .border_1()
                                                                                 .border_color(cx.theme().border)
                                                                                 .rounded_lg()
+                                                                                .overflow_hidden()
                                                                                 .shadow_lg()
-                                                                                .p(px(12.)) // padding matching localsend
+                                                                                .py(px(6.))
                                                                                 .child(
                                                                                     v_flex()
-                                                                                        .gap(px(4.))
                                                                                         .child(
                                                                                             // Single mode with check icon
                                                                                             h_flex()
                                                                                                 .gap(px(10.))
                                                                                                 .items_center()
+                                                                                                .px(px(12.))
+                                                                                                .py(px(6.))
                                                                                                 .child(
                                                                                                     div()
                                                                                                         .when(self.send_state.send_mode == SendMode::Single, |this| {
@@ -734,10 +781,17 @@ impl NearSendApp {
                                                                                                 ),
                                                                                         )
                                                                                         .child(
+                                                                                            div()
+                                                                                                .h(px(1.))
+                                                                                                .bg(cx.theme().border),
+                                                                                        )
+                                                                                        .child(
                                                                                             // Multiple mode with check icon
                                                                                             h_flex()
                                                                                                 .gap(px(10.))
                                                                                                 .items_center()
+                                                                                                .px(px(12.))
+                                                                                                .py(px(6.))
                                                                                                 .child(
                                                                                                     div()
                                                                                                         .when(self.send_state.send_mode == SendMode::Multiple, |this| {
@@ -759,10 +813,17 @@ impl NearSendApp {
                                                                                                 ),
                                                                                         )
                                                                                         .child(
+                                                                                            div()
+                                                                                                .h(px(1.))
+                                                                                                .bg(cx.theme().border),
+                                                                                        )
+                                                                                        .child(
                                                                                             // Link mode (no check)
                                                                                             h_flex()
                                                                                                 .gap(px(10.))
                                                                                                 .items_center()
+                                                                                                .px(px(12.))
+                                                                                                .py(px(6.))
                                                                                                 .child(
                                                                                                     div().w(px(20.)).h(px(20.)), // Maintain size
                                                                                                 )
@@ -779,8 +840,6 @@ impl NearSendApp {
                                                                                         )
                                                                                         .child(
                                                                                             div()
-                                                                                                .mx(px(12.))
-                                                                                                .my(px(4.))
                                                                                                 .h(px(1.))
                                                                                                 .bg(cx.theme().border),
                                                                                         )
@@ -789,6 +848,8 @@ impl NearSendApp {
                                                                                             h_flex()
                                                                                                 .gap(px(10.))
                                                                                                 .items_center()
+                                                                                                .px(px(12.))
+                                                                                                .py(px(6.))
                                                                                                 .child(
                                                                                                     div().text_sm().child("❓"),
                                                                                                 )
@@ -852,6 +913,7 @@ impl NearSendApp {
                                                     .child("Troubleshoot"),
                                             ),
                                     )
+                                    .child(div().h(px(20.))) // SizedBox(height: 20)
                                     .child(
                                         // OpacitySlideshow matching localsend
                                         div()
@@ -861,7 +923,9 @@ impl NearSendApp {
                                                     "Select files and choose a nearby device to send".to_string(),
                                                     "Ensure both devices are on the same network".to_string(),
                                                 ])
-                                                .index(self.send_state.help_index % 2),
+                                                .duration_millis(6000)
+                                                .switch_duration_millis(300)
+                                                .running(animations),
                                             ),
                                     )
                                     .child(div().h(px(50.))), // SizedBox(height: 50)

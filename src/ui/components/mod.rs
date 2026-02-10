@@ -1,3 +1,5 @@
+pub mod animated_crossfade;
+pub mod animated_opacity;
 pub mod big_button;
 pub mod custom_icon_button;
 pub mod device_badge;

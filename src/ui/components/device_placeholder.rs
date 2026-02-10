@@ -16,7 +16,7 @@ impl gpui::RenderOnce for DevicePlaceholder {
             .rounded_lg()
             .p(sizing::CARD_PADDING)
             .mb(spacing::MD)
-            .opacity(30.0)
+            .opacity(0.3)
             .child(
                 div().h(px(60.)).w_full().child(
                     h_flex()

@@ -53,7 +53,7 @@ impl gpui::RenderOnce for ResponsiveWrapView {
                     .gap(px(self.child_padding))
                     .flex_wrap()
                     .w_full()
-                    .justify_center()
+                    .justify_start()
                     .children(
                         self.children
                             .into_iter()

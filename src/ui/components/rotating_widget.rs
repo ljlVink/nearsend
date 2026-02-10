@@ -1,5 +1,6 @@
-use gpui::{AnyElement, IntoElement, Window};
+use gpui::{div, prelude::*, AnyElement, Animation, AnimationExt as _, IntoElement, Window};
 use gpui_component::{ActiveTheme as _, StyledExt as _};
+use std::time::Duration;
 
 /// Rotating widget matching localsend's RotatingWidget
 /// Note: Full rotation animation requires timer/cx.spawn integration
@@ -39,7 +40,21 @@ impl RotatingWidget {
 
 impl gpui::RenderOnce for RotatingWidget {
     fn render(self, _window: &mut Window, _cx: &mut gpui::App) -> impl IntoElement {
-        // For now, just render the child. Full rotation animation would need timer integration
-        self.child
+        if !self.spinning {
+            return self.child.into_any_element();
+        }
+
+        let duration = Duration::from_secs(self.duration_secs.max(1) as u64);
+        div()
+            .child(self.child)
+            .with_animation(
+                "rotating-widget",
+                Animation::new(duration).repeat(),
+                move |this, delta| {
+                    let alpha = gpui::pulsating_between(0.85, 1.0)(delta);
+                    this.opacity(alpha)
+                },
+            )
+            .into_any_element()
     }
 }
