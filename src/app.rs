@@ -26,7 +26,8 @@ impl AppRoot {
         transfer_state: Entity<TransferState>,
         history_state: Entity<HistoryState>,
     ) -> Self {
-        let home_entity = cx.new(|_| HomePage::new(app_state, device_state, transfer_state.clone()));
+        let home_entity =
+            cx.new(|_| HomePage::new(app_state, device_state, transfer_state.clone()));
         let history_entity = cx.new(|_| HistoryPage::new().with_history_state(history_state));
         let progress_entity = cx.new(|_| {
             ProgressPage::new(

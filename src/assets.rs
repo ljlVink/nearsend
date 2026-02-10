@@ -34,6 +34,7 @@ const CUSTOM_ICONS: &[&str] = &[
     "icons/stop.svg",
     "icons/refresh.svg",
     "icons/image.svg",
+    "icons/target.svg",
 ];
 
 impl AssetSource for NearSendAssets {
@@ -77,6 +78,7 @@ impl AssetSource for NearSendAssets {
             "icons/stop.svg" => Some(include_bytes!("../assets/icons/stop.svg").as_slice()),
             "icons/refresh.svg" => Some(include_bytes!("../assets/icons/refresh.svg").as_slice()),
             "icons/image.svg" => Some(include_bytes!("../assets/icons/image.svg").as_slice()),
+            "icons/target.svg" => Some(include_bytes!("../assets/icons/target.svg").as_slice()),
             "img/logo-128.png" => Some(include_bytes!("../assets/img/logo-128.png").as_slice()),
             "img/logo-256.png" => Some(include_bytes!("../assets/img/logo-256.png").as_slice()),
             _ => None,

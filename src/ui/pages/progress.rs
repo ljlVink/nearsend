@@ -1,14 +1,18 @@
 //! Progress page: shows real-time transfer progress with per-file progress bars.
 //! Route: /transfer/progress
 
-use crate::state::transfer_state::{TransferDirection, TransferInfo, TransferState, TransferStatus};
+use crate::state::transfer_state::{
+    TransferDirection, TransferInfo, TransferState, TransferStatus,
+};
 use crate::ui::components::transfer_item::TransferItem;
 use crate::ui::theme::spacing;
 use gpui::{div, prelude::*, px, Context, Entity, Window};
 use gpui_component::scroll::ScrollableElement as _;
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, progress::Progress, v_flex, ActiveTheme as _, Icon, Sizable as _, Size, StyledExt as _,
+    h_flex,
+    progress::Progress,
+    v_flex, ActiveTheme as _, Icon, Sizable as _, Size, StyledExt as _,
 };
 use gpui_router::RouterState;
 
@@ -22,10 +26,7 @@ pub struct ProgressPage {
 }
 
 impl ProgressPage {
-    pub fn new(
-        transfer_state: Entity<TransferState>,
-        direction: TransferDirection,
-    ) -> Self {
+    pub fn new(transfer_state: Entity<TransferState>, direction: TransferDirection) -> Self {
         Self {
             transfer_state,
             session_id: String::new(),
@@ -58,12 +59,20 @@ impl gpui::Render for ProgressPage {
             };
             let file_count = format!(
                 "{}/{}",
-                t.files.iter().filter(|f| f.status == TransferStatus::Completed).count(),
+                t.files
+                    .iter()
+                    .filter(|f| f.status == TransferStatus::Completed)
+                    .count(),
                 t.files.len()
             );
             (t.progress, t.status, speed, file_count)
         } else {
-            (0.0, TransferStatus::Pending, String::new(), "0/0".to_string())
+            (
+                0.0,
+                TransferStatus::Pending,
+                String::new(),
+                "0/0".to_string(),
+            )
         };
 
         let is_done = matches!(
@@ -118,115 +127,107 @@ impl gpui::Render for ProgressPage {
             )
             // Content
             .child(
-                div()
-                    .flex_1()
-                    .w_full()
-                    .overflow_y_scrollbar()
-                    .child(
-                        v_flex()
-                            .w_full()
-                            .px(px(15.))
-                            .py(px(20.))
-                            .gap(spacing::MD)
-                            // Overall progress
-                            .child(
-                                v_flex()
-                                    .gap(spacing::SM)
-                                    .child(
-                                        h_flex()
-                                            .justify_between()
-                                            .child(
-                                                div()
-                                                    .text_sm()
-                                                    .text_color(cx.theme().muted_foreground)
-                                                    .child(file_count_text),
-                                            )
-                                            .child(
-                                                div()
-                                                    .text_sm()
-                                                    .text_color(cx.theme().muted_foreground)
-                                                    .child(format!("{:.0}%", progress_val * 100.0)),
-                                            ),
-                                    )
-                                    .child(
-                                        Progress::new("overall-progress")
-                                            .value((progress_val * 100.0) as f32)
-                                            .w_full(),
-                                    )
-                                    .when(!speed_text.is_empty(), |this| {
-                                        this.child(
+                div().flex_1().w_full().overflow_y_scrollbar().child(
+                    v_flex()
+                        .w_full()
+                        .px(px(15.))
+                        .py(px(20.))
+                        .gap(spacing::MD)
+                        // Overall progress
+                        .child(
+                            v_flex()
+                                .gap(spacing::SM)
+                                .child(
+                                    h_flex()
+                                        .justify_between()
+                                        .child(
                                             div()
-                                                .text_xs()
+                                                .text_sm()
                                                 .text_color(cx.theme().muted_foreground)
-                                                .child(speed_text),
+                                                .child(file_count_text),
                                         )
-                                    }),
-                            )
-                            // Per-file list
-                            .when(transfer.is_some(), |this| {
-                                let t = transfer.as_ref().unwrap();
-                                this.children(t.files.iter().map(|file| {
-                                    let file_transfer = TransferInfo {
-                                        id: file.file_id.clone(),
-                                        device_name: t.device_name.clone(),
-                                        status: file.status,
-                                        direction: t.direction,
-                                        progress: if file.file_size > 0 {
-                                            file.bytes_transferred as f64 / file.file_size as f64
-                                        } else {
-                                            0.0
-                                        },
-                                        bytes_sent: file.bytes_transferred,
-                                        total_bytes: file.file_size,
-                                        file_name: file.file_name.clone(),
-                                        speed_bytes_per_sec: 0,
-                                        eta_seconds: None,
-                                        files: vec![],
-                                    };
-                                    div().mb(spacing::SM).child(TransferItem::new(file_transfer))
-                                }))
-                            })
-                            // Empty state
-                            .when(transfer.is_none(), |this| {
-                                this.child(
-                                    div()
-                                        .w_full()
-                                        .py(px(40.))
-                                        .flex()
-                                        .items_center()
-                                        .justify_center()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child("暂无传输"),
+                                        .child(
+                                            div()
+                                                .text_sm()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .child(format!("{:.0}%", progress_val * 100.0)),
+                                        ),
                                 )
-                            }),
-                    ),
+                                .child(
+                                    Progress::new("overall-progress")
+                                        .value((progress_val * 100.0) as f32)
+                                        .w_full(),
+                                )
+                                .when(!speed_text.is_empty(), |this| {
+                                    this.child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child(speed_text),
+                                    )
+                                }),
+                        )
+                        // Per-file list
+                        .when(transfer.is_some(), |this| {
+                            let t = transfer.as_ref().unwrap();
+                            this.children(t.files.iter().map(|file| {
+                                let file_transfer = TransferInfo {
+                                    id: file.file_id.clone(),
+                                    device_name: t.device_name.clone(),
+                                    status: file.status,
+                                    direction: t.direction,
+                                    progress: if file.file_size > 0 {
+                                        file.bytes_transferred as f64 / file.file_size as f64
+                                    } else {
+                                        0.0
+                                    },
+                                    bytes_sent: file.bytes_transferred,
+                                    total_bytes: file.file_size,
+                                    file_name: file.file_name.clone(),
+                                    speed_bytes_per_sec: 0,
+                                    eta_seconds: None,
+                                    files: vec![],
+                                };
+                                div()
+                                    .mb(spacing::SM)
+                                    .child(TransferItem::new(file_transfer))
+                            }))
+                        })
+                        // Empty state
+                        .when(transfer.is_none(), |this| {
+                            this.child(
+                                div()
+                                    .w_full()
+                                    .py(px(40.))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child("暂无传输"),
+                            )
+                        }),
+                ),
             )
             // Bottom action button
-            .child(
-                div()
+            .child(div().w_full().px(px(15.)).py(px(15.)).child(if is_done {
+                Button::new("progress-done")
+                    .primary()
                     .w_full()
-                    .px(px(15.))
-                    .py(px(15.))
-                    .child(if is_done {
-                        Button::new("progress-done")
-                            .primary()
-                            .w_full()
-                            .on_click(cx.listener(|_this, _event, window, cx| {
-                                RouterState::global_mut(cx).location.pathname = "/".into();
-                                window.refresh();
-                            }))
-                            .child("完成")
-                    } else {
-                        Button::new("progress-cancel")
-                            .with_variant(gpui_component::button::ButtonVariant::Danger)
-                            .outline()
-                            .w_full()
-                            .on_click(cx.listener(|_this, _event, _window, _cx| {
-                                log::info!("Cancel transfer");
-                            }))
-                            .child("取消")
-                    }),
-            )
+                    .on_click(cx.listener(|_this, _event, window, cx| {
+                        RouterState::global_mut(cx).location.pathname = "/".into();
+                        window.refresh();
+                    }))
+                    .child("完成")
+            } else {
+                Button::new("progress-cancel")
+                    .with_variant(gpui_component::button::ButtonVariant::Danger)
+                    .outline()
+                    .w_full()
+                    .on_click(cx.listener(|_this, _event, _window, _cx| {
+                        log::info!("Cancel transfer");
+                    }))
+                    .child("取消")
+            }))
     }
 }
 

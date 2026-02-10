@@ -28,6 +28,7 @@ pub struct SelectedFileInfo {
     pub name: String,
     pub size: u64,
     pub file_type: String, // e.g. "image/png", "application/pdf", or extension
+    pub text_content: Option<String>, // For text messages
 }
 
 /// Send tab state
@@ -42,6 +43,9 @@ pub struct SendPageState {
     pub help_index: usize,
     pub show_scan_menu: bool,
     pub show_send_mode_menu: bool,
+    pub target_device: Option<ClientInfo>,
+    pub target_ip: Option<String>,
+    pub pending_send: bool,
 }
 
 impl Default for SendPageState {
@@ -57,6 +61,9 @@ impl Default for SendPageState {
             help_index: 0,
             show_scan_menu: false,
             show_send_mode_menu: false,
+            target_device: None,
+            target_ip: None,
+            pending_send: false,
         }
     }
 }

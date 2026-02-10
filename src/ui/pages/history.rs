@@ -79,17 +79,10 @@ impl gpui::Render for HistoryPage {
                                         state.update(cx, |s, _cx| s.clear());
                                     }
                                 }))
-                                .child(
-                                    div()
-                                        .text_sm()
-                                        .text_color(cx.theme().danger)
-                                        .child("清空"),
-                                ),
+                                .child(div().text_sm().text_color(cx.theme().danger).child("清空")),
                         )
                     })
-                    .when(!has_entries, |this| {
-                        this.child(div().w(px(40.)))
-                    }),
+                    .when(!has_entries, |this| this.child(div().w(px(40.)))),
             )
             // Content
             .child(

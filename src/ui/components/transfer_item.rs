@@ -3,7 +3,9 @@ use crate::ui::theme::{sizing, spacing};
 use gpui::{div, prelude::*, px, Window};
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, progress::Progress, v_flex, ActiveTheme as _, Icon, Sizable as _, Size, StyledExt as _,
+    h_flex,
+    progress::Progress,
+    v_flex, ActiveTheme as _, Icon, Sizable as _, Size, StyledExt as _,
 };
 
 /// Transfer item component for mobile design — shows per-file transfer progress.
@@ -169,10 +171,7 @@ impl gpui::RenderOnce for TransferItem {
                                     div()
                                         .text_xs()
                                         .text_color(cx.theme().muted_foreground)
-                                        .child(format!(
-                                            "{:.1}%",
-                                            self.transfer.progress * 100.0,
-                                        )),
+                                        .child(format!("{:.1}%", self.transfer.progress * 100.0,)),
                                 )
                                 .child(
                                     div()

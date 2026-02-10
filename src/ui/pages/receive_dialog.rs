@@ -182,9 +182,7 @@ impl gpui::Render for ReceiveDialog {
                                                     .child(
                                                         div()
                                                             .text_xs()
-                                                            .text_color(
-                                                                cx.theme().muted_foreground,
-                                                            )
+                                                            .text_color(cx.theme().muted_foreground)
                                                             .child(file_size),
                                                     ),
                                             ),

@@ -1,7 +1,7 @@
 //! Receive tab content for home page (top bar, middle logo, bottom Quick Save bar).
 
-use super::QuickSaveMode;
 use super::HomePage;
+use super::QuickSaveMode;
 use crate::ui::components::logo::Logo;
 use crate::ui::components::rotating_widget::RotatingWidget;
 use crate::ui::theme::spacing;
@@ -45,19 +45,16 @@ pub fn render_receive_content(
                 .items_center()
                 .justify_end()
                 .gap(spacing::SM)
-                // History button — hidden when info popover is open
-                .when(!show_advanced, |this| {
-                    this.child(render_circle_button(
-                        "receive-history",
-                        "icons/history.svg",
-                        cx,
-                        |_this, _event, window, cx| {
-                            RouterState::global_mut(cx).location.pathname =
-                                "/receive/history".into();
-                            window.refresh();
-                        },
-                    ))
-                })
+                // History button — always visible
+                .child(render_circle_button(
+                    "receive-history",
+                    "icons/history.svg",
+                    cx,
+                    |_this, _event, window, cx| {
+                        RouterState::global_mut(cx).location.pathname = "/receive/history".into();
+                        window.refresh();
+                    },
+                ))
                 // Info popover
                 .child(
                     Popover::new("receive-info")
@@ -124,11 +121,7 @@ pub fn render_receive_content(
                                             )
                                         }),
                                 )
-                                .child(render_info_row(
-                                    "Port:",
-                                    &server_port.to_string(),
-                                    cx,
-                                ))
+                                .child(render_info_row("Port:", &server_port.to_string(), cx))
                         }),
                 ),
         )
@@ -190,47 +183,42 @@ pub fn render_receive_content(
         )
         // Bottom: Quick Save selector
         .child(
-            div()
-                .w_full()
-                .pt(px(20.))
-                .pb(px(15.))
-                .px(px(30.))
-                .child(
-                    v_flex()
-                        .gap(spacing::MD)
-                        .items_center()
-                        .child(
-                            div()
-                                .text_lg()
-                                .font_medium()
-                                .text_color(cx.theme().foreground)
-                                .child("自动保存"),
-                        )
-                        .child(
-                            TabBar::new("quick-save")
-                                .w_full()
-                                .segmented()
-                                .with_size(Size::Large)
-                                .selected_index(match quick_save_mode {
-                                    QuickSaveMode::Off => 0,
-                                    QuickSaveMode::Favorites => 1,
-                                    QuickSaveMode::On => 2,
-                                })
-                                .on_click(cx.listener(|this, index, _window, _cx| {
-                                    this.receive_state.quick_save_mode = match *index {
-                                        0 => QuickSaveMode::Off,
-                                        1 => QuickSaveMode::Favorites,
-                                        2 => QuickSaveMode::On,
-                                        _ => QuickSaveMode::Off,
-                                    };
-                                }))
-                                .children([
-                                    Tab::new().flex_1().label("关"),
-                                    Tab::new().flex_1().label("收藏夹"),
-                                    Tab::new().flex_1().label("开"),
-                                ]),
-                        ),
-                ),
+            div().w_full().pt(px(20.)).pb(px(30.)).px(px(30.)).child(
+                v_flex()
+                    .gap(spacing::MD)
+                    .items_center()
+                    .child(
+                        div()
+                            .text_lg()
+                            .font_medium()
+                            .text_color(cx.theme().foreground)
+                            .child("自动保存"),
+                    )
+                    .child(
+                        TabBar::new("quick-save")
+                            .w_full()
+                            .segmented()
+                            .with_size(Size::Large)
+                            .selected_index(match quick_save_mode {
+                                QuickSaveMode::Off => 0,
+                                QuickSaveMode::Favorites => 1,
+                                QuickSaveMode::On => 2,
+                            })
+                            .on_click(cx.listener(|this, index, _window, _cx| {
+                                this.receive_state.quick_save_mode = match *index {
+                                    0 => QuickSaveMode::Off,
+                                    1 => QuickSaveMode::Favorites,
+                                    2 => QuickSaveMode::On,
+                                    _ => QuickSaveMode::Off,
+                                };
+                            }))
+                            .children([
+                                Tab::new().flex_1().label("关"),
+                                Tab::new().flex_1().label("收藏夹"),
+                                Tab::new().flex_1().label("开"),
+                            ]),
+                    ),
+            ),
         )
         .into_any_element()
 }
@@ -276,11 +264,7 @@ fn render_circle_button(
                 .flex()
                 .items_center()
                 .justify_center()
-                .child(
-                    Icon::default()
-                        .path(icon_path)
-                        .with_size(Size::Medium),
-                ),
+                .child(Icon::default().path(icon_path).with_size(Size::Medium)),
         )
         .on_click(cx.listener(on_click))
 }

@@ -4,7 +4,6 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 /// Device discovery service using LocalSend core
-/// TODO: Implement using localsend core discovery mechanism
 pub struct DiscoveryService {
     devices: Arc<RwLock<HashMap<String, ClientInfo>>>,
 }
@@ -16,12 +15,11 @@ impl DiscoveryService {
         }
     }
 
-    /// Start device discovery
-    pub async fn start(&mut self) -> anyhow::Result<()> {
-        // TODO: Initialize multicast discovery using localsend core
-        // This will use the official discovery mechanism
+    /// Start device discovery (sync wrapper).
+    pub fn start_sync(&self) {
         log::info!("Starting device discovery service");
-        Ok(())
+        // TODO: Initialize multicast discovery using localsend core
+        // This will use the official discovery mechanism when implemented
     }
 
     /// Get discovered devices
@@ -30,7 +28,7 @@ impl DiscoveryService {
     }
 
     /// Stop discovery service
-    pub async fn stop(&self) {
+    pub fn stop(&self) {
         log::info!("Stopping device discovery service");
     }
 }

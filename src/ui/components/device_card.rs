@@ -160,36 +160,34 @@ impl gpui::RenderOnce for DeviceCard {
                             )
                             .child(subtitle),
                     )
-                    .child(
-                        if on_favorite_tap.is_some() {
-                            Button::new("favorite")
-                                .ghost()
-                                .on_click(move |_event, window, cx| {
-                                    if let Some(ref handler) = on_favorite_tap {
-                                        handler(&device, window, cx);
-                                    }
-                                })
-                                .child(
-                                    Icon::default()
-                                        .path("icons/heart.svg")
-                                        .with_size(Size::Medium)
-                                        .text_color(if is_favorite {
-                                            cx.theme().danger
-                                        } else {
-                                            cx.theme().muted_foreground
-                                        }),
-                                )
-                        } else {
-                            Button::new("send")
-                                .primary()
-                                .on_click(move |_event, window, cx| {
-                                    if let Some(ref handler) = on_select {
-                                        handler(&device, window, cx);
-                                    }
-                                })
-                                .child("发送")
-                        },
-                    ),
+                    .child(if on_favorite_tap.is_some() {
+                        Button::new("favorite")
+                            .ghost()
+                            .on_click(move |_event, window, cx| {
+                                if let Some(ref handler) = on_favorite_tap {
+                                    handler(&device, window, cx);
+                                }
+                            })
+                            .child(
+                                Icon::default()
+                                    .path("icons/heart.svg")
+                                    .with_size(Size::Medium)
+                                    .text_color(if is_favorite {
+                                        cx.theme().danger
+                                    } else {
+                                        cx.theme().muted_foreground
+                                    }),
+                            )
+                    } else {
+                        Button::new("send")
+                            .primary()
+                            .on_click(move |_event, window, cx| {
+                                if let Some(ref handler) = on_select {
+                                    handler(&device, window, cx);
+                                }
+                            })
+                            .child("发送")
+                    }),
             )
     }
 }

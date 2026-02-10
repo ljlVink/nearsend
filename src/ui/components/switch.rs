@@ -26,23 +26,29 @@ impl gpui::RenderOnce for Switch {
         let thumb_color = if checked {
             cx.theme().primary_foreground
         } else {
-            cx.theme().border
+            cx.theme().muted_foreground
         };
 
         div()
             .id("switch")
-            .w(px(44.))
-            .h(px(24.))
+            .w(px(50.))
+            .h(px(28.))
             .rounded_full()
             .bg(track_color)
+            .border_2()
+            .border_color(if checked {
+                cx.theme().primary
+            } else {
+                cx.theme().muted_foreground
+            })
             .relative()
             .child(
                 div()
                     .absolute()
-                    .top(px(2.))
-                    .left(if checked { px(22.) } else { px(2.) })
-                    .w(px(20.))
-                    .h(px(20.))
+                    .top(px(1.))
+                    .left(if checked { px(23.) } else { px(1.) })
+                    .w(px(22.))
+                    .h(px(22.))
                     .rounded_full()
                     .bg(thumb_color),
             )

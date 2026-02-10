@@ -70,138 +70,127 @@ impl gpui::Render for SelectedFilesPage {
                             .on_click(cx.listener(|this, _event, _window, _cx| {
                                 this.files.clear();
                             }))
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(cx.theme().danger)
-                                    .child("清空"),
-                            ),
+                            .child(div().text_sm().text_color(cx.theme().danger).child("清空")),
                     ),
             )
             // File list
             .child(
-                div()
-                    .flex_1()
-                    .w_full()
-                    .overflow_y_scrollbar()
-                    .child(
-                        v_flex()
-                            .w_full()
-                            .px(px(15.))
-                            .gap(spacing::SM)
-                            .children(files.iter().enumerate().map(|(i, file)| {
-                                let file_name = file.name.clone();
-                                let file_size = format_file_size(file.size);
-                                div()
-                                    .bg(cx.theme().secondary)
-                                    .border_1()
-                                    .border_color(cx.theme().border)
-                                    .rounded_lg()
-                                    .p(px(12.))
-                                    .child(
-                                        h_flex()
-                                            .items_center()
-                                            .gap(spacing::SM)
-                                            .w_full()
-                                            .child(
-                                                div()
-                                                    .w(px(36.))
-                                                    .h(px(36.))
-                                                    .rounded_md()
-                                                    .bg(cx.theme().muted)
-                                                    .flex()
-                                                    .items_center()
-                                                    .justify_center()
-                                                    .child(
-                                                        Icon::default()
-                                                            .path("icons/file.svg")
-                                                            .with_size(Size::Small)
-                                                            .text_color(cx.theme().muted_foreground),
-                                                    ),
-                                            )
-                                            .child(
-                                                v_flex()
-                                                    .flex_1()
-                                                    .gap(px(2.))
-                                                    .child(
-                                                        div()
-                                                            .text_sm()
-                                                            .text_color(cx.theme().foreground)
-                                                            .child(file_name),
-                                                    )
-                                                    .child(
-                                                        div()
-                                                            .text_xs()
-                                                            .text_color(cx.theme().muted_foreground)
-                                                            .child(file_size),
-                                                    ),
-                                            )
-                                            .child(
-                                                Button::new(format!("delete-file-{}", i))
-                                                    .ghost()
-                                                    .on_click(cx.listener(move |this, _event, _window, _cx| {
+                div().flex_1().w_full().overflow_y_scrollbar().child(
+                    v_flex()
+                        .w_full()
+                        .px(px(15.))
+                        .gap(spacing::SM)
+                        .children(files.iter().enumerate().map(|(i, file)| {
+                            let file_name = file.name.clone();
+                            let file_size = format_file_size(file.size);
+                            div()
+                                .bg(cx.theme().secondary)
+                                .border_1()
+                                .border_color(cx.theme().border)
+                                .rounded_lg()
+                                .p(px(12.))
+                                .child(
+                                    h_flex()
+                                        .items_center()
+                                        .gap(spacing::SM)
+                                        .w_full()
+                                        .child(
+                                            div()
+                                                .w(px(36.))
+                                                .h(px(36.))
+                                                .rounded_md()
+                                                .bg(cx.theme().muted)
+                                                .flex()
+                                                .items_center()
+                                                .justify_center()
+                                                .child(
+                                                    Icon::default()
+                                                        .path("icons/file.svg")
+                                                        .with_size(Size::Small)
+                                                        .text_color(cx.theme().muted_foreground),
+                                                ),
+                                        )
+                                        .child(
+                                            v_flex()
+                                                .flex_1()
+                                                .gap(px(2.))
+                                                .child(
+                                                    div()
+                                                        .text_sm()
+                                                        .text_color(cx.theme().foreground)
+                                                        .child(file_name),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .text_xs()
+                                                        .text_color(cx.theme().muted_foreground)
+                                                        .child(file_size),
+                                                ),
+                                        )
+                                        .child(
+                                            Button::new(format!("delete-file-{}", i))
+                                                .ghost()
+                                                .on_click(cx.listener(
+                                                    move |this, _event, _window, _cx| {
                                                         if i < this.files.len() {
                                                             this.files.remove(i);
                                                         }
-                                                    }))
-                                                    .child(
-                                                        Icon::default()
-                                                            .path("icons/trash.svg")
-                                                            .with_size(Size::Small)
-                                                            .text_color(cx.theme().danger),
-                                                    ),
-                                            ),
-                                    )
-                            }))
-                            .when(files.is_empty(), |this| {
-                                this.child(
-                                    div()
-                                        .w_full()
-                                        .py(px(40.))
-                                        .flex()
-                                        .items_center()
-                                        .justify_center()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child("暂无文件"),
+                                                    },
+                                                ))
+                                                .child(
+                                                    Icon::default()
+                                                        .path("icons/trash.svg")
+                                                        .with_size(Size::Small)
+                                                        .text_color(cx.theme().danger),
+                                                ),
+                                        ),
                                 )
-                            }),
-                    ),
+                        }))
+                        .when(files.is_empty(), |this| {
+                            this.child(
+                                div()
+                                    .w_full()
+                                    .py(px(40.))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child("暂无文件"),
+                            )
+                        }),
+                ),
             )
             // Bottom bar
             .child(
-                div()
-                    .w_full()
-                    .px(px(15.))
-                    .py(px(15.))
-                    .child(
-                        h_flex()
-                            .justify_between()
-                            .items_center()
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(format!("总计: {}", format_file_size(total_size))),
-                            )
-                            .child(
-                                Button::new("add-more-files")
-                                    .primary()
-                                    .on_click(cx.listener(|_this, _event, _window, _cx| {
-                                        log::info!("Add more files");
-                                    }))
-                                    .child(
-                                        h_flex()
-                                            .items_center()
-                                            .gap(px(6.))
-                                            .child(
-                                                Icon::default()
-                                                    .path("icons/plus.svg")
-                                                    .with_size(Size::Small),
-                                            )
-                                            .child("添加"),
-                                    ),
-                            ),
-                    ),
+                div().w_full().px(px(15.)).py(px(15.)).child(
+                    h_flex()
+                        .justify_between()
+                        .items_center()
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(format!("总计: {}", format_file_size(total_size))),
+                        )
+                        .child(
+                            Button::new("add-more-files")
+                                .primary()
+                                .on_click(cx.listener(|_this, _event, _window, _cx| {
+                                    log::info!("Add more files");
+                                }))
+                                .child(
+                                    h_flex()
+                                        .items_center()
+                                        .gap(px(6.))
+                                        .child(
+                                            Icon::default()
+                                                .path("icons/plus.svg")
+                                                .with_size(Size::Small),
+                                        )
+                                        .child("添加"),
+                                ),
+                        ),
+                ),
             )
     }
 }
