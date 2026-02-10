@@ -7,7 +7,7 @@ use gpui::{div, prelude::*, px, AnyElement, Context, Entity, IntoElement, Window
 use gpui_component::{
     h_flex,
     tab::{Tab, TabBar},
-    v_flex, ActiveTheme as _, Root, StyledExt as _,
+    v_flex, ActiveTheme as _, Icon, Root, Sizable as _, StyledExt as _,
 };
 use uuid::Uuid;
 
@@ -80,12 +80,10 @@ impl gpui::Render for NearSendApp {
                     }),
             )
             .child(
-                // Bottom Navigation Bar matching LocalSend mobile
+                // Bottom Navigation Bar: no divider with content, selected = theme color (no bg), unselected = gray
                 div()
                     .w_full()
                     .bg(cx.theme().background)
-                    .border_t_1()
-                    .border_color(cx.theme().border)
                     .py(px(6.))
                     .child(self.render_bottom_nav(cx)),
             )
@@ -97,17 +95,17 @@ impl gpui::Render for NearSendApp {
 
 impl NearSendApp {
     fn render_bottom_nav(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let items = [
-            (TabType::Receive, "Receive", "📥"),
-            (TabType::Send, "Send", "📤"),
-            (TabType::Settings, "Settings", "⚙️"),
+        let items: [(TabType, &'static str, &'static str); 3] = [
+            (TabType::Receive, "接收", "icons/wifi.svg"),
+            (TabType::Send, "发送", "icons/send-horizontal.svg"),
+            (TabType::Settings, "设置", "icons/settings.svg"),
         ];
 
         h_flex()
             .w_full()
             .items_center()
-            .children(items.iter().map(|(tab, label, icon)| {
-                div().flex_1().child(self.render_bottom_nav_item(*tab, label, icon, cx))
+            .children(items.iter().map(|(tab, label, icon_path)| {
+                div().flex_1().child(self.render_bottom_nav_item(*tab, label, *icon_path, cx))
             }))
             .into_any_element()
     }
@@ -116,45 +114,44 @@ impl NearSendApp {
         &mut self,
         tab: TabType,
         label: &'static str,
-        icon: &'static str,
+        icon_path: &'static str,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        use gpui_component::button::ButtonVariants as _;
-
         let selected = self.current_tab == tab;
-        let button_id = format!("tab-{}", label.to_lowercase());
+        let tab_id = format!("tab-{}", label.to_lowercase());
+        let text_color = if selected {
+            cx.theme().primary
+        } else {
+            cx.theme().muted_foreground
+        };
 
-        gpui_component::button::Button::new(button_id)
-            .ghost()
+        let icon_el = Icon::default()
+            .path(icon_path)
+            .text_color(text_color)
+            .with_size(gpui_component::Size::Large);
+
+        div()
+            .id(tab_id)
             .w_full()
+            .h(px(56.))
+            .py(px(6.))
+            .flex()
+            .items_center()
+            .justify_center()
             .on_click(cx.listener(move |this, _event, _window, _cx| {
                 this.current_tab = tab;
             }))
             .child(
-                div()
-                    .w_full()
-                    .h(px(56.))
-                    .py(px(6.))
-                    .rounded_md()
-                    .when(selected, |this| this.bg(cx.theme().secondary))
+                v_flex()
+                    .items_center()
+                    .gap(px(2.))
+                    .text_color(text_color)
+                    .child(icon_el)
                     .child(
-                        v_flex()
-                            .items_center()
-                            .gap(px(2.))
-                            .text_color(if selected {
-                                cx.theme().foreground
-                            } else {
-                                cx.theme().muted_foreground
-                            })
-                            .child(
-                                div()
-                                    .h(px(22.))
-                                    .items_center()
-                                    .justify_center()
-                                    .text_xl()
-                                    .child(icon),
-                            )
-                            .child(div().text_sm().child(label)),
+                        div()
+                            .when(selected, |this| this.text_base())
+                            .when(!selected, |this| this.text_sm())
+                            .child(label),
                     ),
             )
             .into_any_element()

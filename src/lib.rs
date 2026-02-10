@@ -9,6 +9,7 @@ use ohos_hilog_binding::log::Config;
 use openharmony_ability::OpenHarmonyApp;
 
 mod app;
+mod assets;
 mod core;
 mod state;
 mod ui;
@@ -29,7 +30,7 @@ pub fn openharmony_app(app: OpenHarmonyApp) {
     // Initialize and run GPUI application
     // The event loop is automatically integrated by the platform
     Application::new()
-        .with_assets(ComponentAssets)
+        .with_assets(assets::NearSendAssets(ComponentAssets))
         .with_ohos_app(app.clone())
         .run(move |cx: &mut App| {
             gpui_component::init(cx);

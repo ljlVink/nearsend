@@ -1,11 +1,7 @@
 use crate::state::{device_state::DeviceState, transfer_state::TransferState};
 use crate::ui::pages::{receive::ReceivePage, send::SendPage};
-use crate::ui::theme::sizing;
 use gpui::{div, prelude::*, px, Context, Entity, Window};
-use gpui_component::{
-    tab::{Tab, TabBar},
-    v_flex, ActiveTheme as _, StyledExt as _,
-};
+use gpui_component::{h_flex, v_flex, ActiveTheme as _, StyledExt as _};
 
 /// Home page with tab navigation (mobile-first design)
 pub struct HomePage {
@@ -34,11 +30,9 @@ impl gpui::Render for HomePage {
             .flex_1()
             .bg(cx.theme().background)
             .child(
-                // Header
+                // Header (no divider with tab row below)
                 div()
                     .bg(cx.theme().background)
-                    .border_b_1()
-                    .border_color(cx.theme().border)
                     .p_4()
                     .child(
                         div()
@@ -49,15 +43,40 @@ impl gpui::Render for HomePage {
                     ),
             )
             .child(
-                // Tab Bar (mobile-friendly)
-                TabBar::new("main-tabs")
-                    .segmented()
+                // Minimal tab row: no divider with content, selected = theme color (no bg), unselected = gray
+                h_flex()
                     .w_full()
-                    .selected_index(current_tab)
-                    .on_click(cx.listener(|this, index, _window, _cx| {
-                        this.current_tab = *index;
-                    }))
-                    .children([Tab::new().label("Send"), Tab::new().label("Receive")]),
+                    .gap(px(16.))
+                    .px(px(12.))
+                    .py(px(8.))
+                    .child(
+                        div()
+                            .id("tab-send")
+                            .text_sm()
+                            .text_color(if current_tab == 0 {
+                                cx.theme().primary
+                            } else {
+                                cx.theme().muted_foreground
+                            })
+                            .on_click(cx.listener(|this, _event, _window, _cx| {
+                                this.current_tab = 0;
+                            }))
+                            .child("Send"),
+                    )
+                    .child(
+                        div()
+                            .id("tab-receive")
+                            .text_sm()
+                            .text_color(if current_tab == 1 {
+                                cx.theme().primary
+                            } else {
+                                cx.theme().muted_foreground
+                            })
+                            .on_click(cx.listener(|this, _event, _window, _cx| {
+                                this.current_tab = 1;
+                            }))
+                            .child("Receive"),
+                    ),
             )
             .child(
                 // Content area
