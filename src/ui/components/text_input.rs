@@ -1,4 +1,4 @@
-use gpui::{div, prelude::*, px, AnyElement, IntoElement, Window};
+use gpui::{div, prelude::*, AnyElement, IntoElement, Window};
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     ActiveTheme as _, StyledExt as _,

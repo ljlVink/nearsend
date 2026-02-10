@@ -1,5 +1,4 @@
 use localsend::http::server::start_with_port;
-use localsend::http::server::TlsConfig;
 use localsend::http::state::ClientInfo;
 use std::path::PathBuf;
 use tokio::sync::oneshot;

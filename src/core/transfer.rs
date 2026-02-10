@@ -1,5 +1,5 @@
 use localsend::http::client::LsHttpClient;
-use localsend::http::dto::{PrepareUploadRequestDto, ProtocolType, RegisterDto};
+use localsend::http::dto::ProtocolType;
 use localsend::http::state::ClientInfo;
 use std::path::PathBuf;
 

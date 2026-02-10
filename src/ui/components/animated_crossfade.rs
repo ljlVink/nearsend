@@ -48,22 +48,16 @@ impl gpui::RenderOnce for AnimatedCrossFade {
         div()
             .relative()
             .child(
-                div()
-                    .absolute()
-                    .inset_0()
-                    .child(
-                        AnimatedOpacity::new(first_id, first_opacity, self.first)
-                            .duration_ms(self.duration_ms),
-                    ),
+                div().absolute().inset_0().child(
+                    AnimatedOpacity::new(first_id, first_opacity, self.first)
+                        .duration_ms(self.duration_ms),
+                ),
             )
             .child(
-                div()
-                    .absolute()
-                    .inset_0()
-                    .child(
-                        AnimatedOpacity::new(second_id, second_opacity, self.second)
-                            .duration_ms(self.duration_ms),
-                    ),
+                div().absolute().inset_0().child(
+                    AnimatedOpacity::new(second_id, second_opacity, self.second)
+                        .duration_ms(self.duration_ms),
+                ),
             )
     }
 }

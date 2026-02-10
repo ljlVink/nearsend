@@ -1,4 +1,4 @@
-// Settings page state and types - aligned with localsend
+//! Settings tab state and types (theme, color, receive/send/network options).
 
 /// Theme mode (Brightness)
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -16,14 +16,12 @@ pub enum ColorMode {
     Oled,
 }
 
-/// Settings page state
+/// Settings tab state
 pub struct SettingsPageState {
-    // General
     pub theme_mode: ThemeMode,
     pub color_mode: ColorMode,
     pub language: String,
     pub animations: bool,
-    // Receive
     pub advanced: bool,
     pub quick_save: bool,
     pub quick_save_favorites: bool,
@@ -32,9 +30,7 @@ pub struct SettingsPageState {
     pub save_to_gallery: bool,
     pub auto_finish: bool,
     pub save_to_history: bool,
-    // Send (advanced)
     pub share_via_link_auto_accept: bool,
-    // Network
     pub server_running: bool,
     pub server_alias: String,
     pub server_port: u16,
@@ -74,5 +70,3 @@ impl Default for SettingsPageState {
         }
     }
 }
-
-// Page rendering is implemented in app.rs

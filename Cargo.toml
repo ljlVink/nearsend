@@ -11,6 +11,7 @@ crate-type = ["cdylib"]
 [dependencies]
 gpui = { git = "https://github.com/richerfu/zed.git", branch = "feat-shader" }
 gpui-component = { git = "https://github.com/richerfu/gpui-component.git" }
+gpui-router = { git = "https://github.com/richerfu/gpui-router.git", default-features = false }
 gpui-component-assets = { git = "https://github.com/richerfu/gpui-component.git" }
 openharmony-ability = { git = "https://github.com/harmony-contrib/openharmony-ability.git" }
 openharmony-ability-derive = { git = "https://github.com/harmony-contrib/openharmony-ability.git" }

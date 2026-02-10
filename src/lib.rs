@@ -1,7 +1,5 @@
-use gpui::{
-    px, size, App, AppContext, Application, Bounds, Context, Window, WindowBounds, WindowOptions,
-};
-use gpui_component::{Root, StyledExt as _};
+use gpui::{px, size, App, AppContext, Application, Bounds, WindowBounds, WindowOptions};
+use gpui_component::Root;
 use gpui_component_assets::Assets as ComponentAssets;
 
 use log::LevelFilter;
@@ -34,6 +32,7 @@ pub fn openharmony_app(app: OpenHarmonyApp) {
         .with_ohos_app(app.clone())
         .run(move |cx: &mut App| {
             gpui_component::init(cx);
+            gpui_router::init(cx);
             let info = inner_app.content_rect();
             let default_size = size(px(info.width as _), px(info.height as _));
             let bounds = Bounds::centered(None, default_size, cx);
@@ -44,9 +43,7 @@ pub fn openharmony_app(app: OpenHarmonyApp) {
                     ..Default::default()
                 },
                 |window, cx| {
-                    // Create the app view directly, GPUI will convert cx to the right type
                     let view = cx.new(|cx| {
-                        // Initialize core services
                         let discovery = cx.new(|_| core::discovery::DiscoveryService::new());
                         let server = cx.new(|_| {
                             core::server::ServerManager::new(
@@ -55,8 +52,6 @@ pub fn openharmony_app(app: OpenHarmonyApp) {
                             )
                         });
                         let transfer = cx.new(|_| core::transfer::TransferService::new());
-
-                        // Initialize state
                         let app_state = cx.new(|_| {
                             state::app_state::AppState::new(
                                 discovery.clone(),
@@ -67,8 +62,9 @@ pub fn openharmony_app(app: OpenHarmonyApp) {
                         let device_state = cx.new(|_| state::device_state::DeviceState::new());
                         let transfer_state =
                             cx.new(|_| state::transfer_state::TransferState::new());
-
-                        app::NearSendApp::new(app_state, device_state, transfer_state)
+                        let history_state =
+                            cx.new(|_| state::history_state::HistoryState::new());
+                        app::AppRoot::new(cx, app_state, device_state, transfer_state, history_state)
                     });
                     cx.new(|cx| Root::new(view, window, cx))
                 },

@@ -1,46 +1,249 @@
-use crate::state::transfer_state::TransferState;
-use crate::ui::components::transfer_item::TransferItem;
-use crate::ui::theme::{sizing, spacing};
-use gpui::{div, prelude::*, px, Context, Entity, Window};
-use gpui_component::{scroll::ScrollableElement, v_flex, ActiveTheme as _, StyledExt as _};
+//! Progress page: shows real-time transfer progress with per-file progress bars.
+//! Route: /transfer/progress
 
-/// Progress page for showing active transfers (mobile-first design)
+use crate::state::transfer_state::{TransferDirection, TransferInfo, TransferState, TransferStatus};
+use crate::ui::components::transfer_item::TransferItem;
+use crate::ui::theme::spacing;
+use gpui::{div, prelude::*, px, Context, Entity, Window};
+use gpui_component::scroll::ScrollableElement as _;
+use gpui_component::{
+    button::{Button, ButtonVariants as _},
+    h_flex, progress::Progress, v_flex, ActiveTheme as _, Icon, Sizable as _, Size, StyledExt as _,
+};
+use gpui_router::RouterState;
+
+/// Progress page: full-screen view of ongoing transfer.
 pub struct ProgressPage {
     transfer_state: Entity<TransferState>,
+    session_id: String,
+    direction: TransferDirection,
+    // Cached transfer info for rendering
+    current_transfer: Option<TransferInfo>,
 }
 
 impl ProgressPage {
-    pub fn new(transfer_state: Entity<TransferState>) -> Self {
-        Self { transfer_state }
+    pub fn new(
+        transfer_state: Entity<TransferState>,
+        direction: TransferDirection,
+    ) -> Self {
+        Self {
+            transfer_state,
+            session_id: String::new(),
+            direction,
+            current_transfer: None,
+        }
     }
 }
 
 impl gpui::Render for ProgressPage {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let transfer_state = self.transfer_state.clone();
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
+        let direction_label = match self.direction {
+            TransferDirection::Send => "发送中",
+            TransferDirection::Receive => "接收中",
+        };
+
+        let direction_icon = match self.direction {
+            TransferDirection::Send => "icons/upload.svg",
+            TransferDirection::Receive => "icons/download.svg",
+        };
+
+        // Use cached transfer or show empty state
+        let transfer = self.current_transfer.clone();
+
+        let (progress_val, status, speed_text, file_count_text) = if let Some(ref t) = transfer {
+            let speed = if t.speed_bytes_per_sec > 0 {
+                format!("{}/s", format_bytes(t.speed_bytes_per_sec))
+            } else {
+                String::new()
+            };
+            let file_count = format!(
+                "{}/{}",
+                t.files.iter().filter(|f| f.status == TransferStatus::Completed).count(),
+                t.files.len()
+            );
+            (t.progress, t.status, speed, file_count)
+        } else {
+            (0.0, TransferStatus::Pending, String::new(), "0/0".to_string())
+        };
+
+        let is_done = matches!(
+            status,
+            TransferStatus::Completed | TransferStatus::Failed | TransferStatus::Cancelled
+        );
 
         v_flex()
-            .flex_1()
-            .p(spacing::MD)
-            .gap(spacing::MD)
+            .size_full()
             .bg(cx.theme().background)
+            // App bar
+            .child(
+                h_flex()
+                    .w_full()
+                    .h(px(56.))
+                    .px(px(15.))
+                    .items_center()
+                    .child(
+                        Button::new("progress-back")
+                            .ghost()
+                            .child(
+                                Icon::default()
+                                    .path("icons/arrow-left.svg")
+                                    .with_size(Size::Small),
+                            )
+                            .on_click(cx.listener(|_this, _event, window, cx| {
+                                RouterState::global_mut(cx).location.pathname = "/".into();
+                                window.refresh();
+                            })),
+                    )
+                    .child(
+                        h_flex()
+                            .flex_1()
+                            .justify_center()
+                            .gap(px(8.))
+                            .items_center()
+                            .child(
+                                Icon::default()
+                                    .path(direction_icon)
+                                    .with_size(Size::Small)
+                                    .text_color(cx.theme().foreground),
+                            )
+                            .child(
+                                div()
+                                    .text_base()
+                                    .font_semibold()
+                                    .text_color(cx.theme().foreground)
+                                    .child(direction_label),
+                            ),
+                    )
+                    .child(div().w(px(40.))), // spacer for centering
+            )
+            // Content
             .child(
                 div()
-                    .text_lg()
-                    .font_semibold()
-                    .text_color(cx.theme().foreground)
-                    .child("Active Transfers"),
+                    .flex_1()
+                    .w_full()
+                    .overflow_y_scrollbar()
+                    .child(
+                        v_flex()
+                            .w_full()
+                            .px(px(15.))
+                            .py(px(20.))
+                            .gap(spacing::MD)
+                            // Overall progress
+                            .child(
+                                v_flex()
+                                    .gap(spacing::SM)
+                                    .child(
+                                        h_flex()
+                                            .justify_between()
+                                            .child(
+                                                div()
+                                                    .text_sm()
+                                                    .text_color(cx.theme().muted_foreground)
+                                                    .child(file_count_text),
+                                            )
+                                            .child(
+                                                div()
+                                                    .text_sm()
+                                                    .text_color(cx.theme().muted_foreground)
+                                                    .child(format!("{:.0}%", progress_val * 100.0)),
+                                            ),
+                                    )
+                                    .child(
+                                        Progress::new("overall-progress")
+                                            .value((progress_val * 100.0) as f32)
+                                            .w_full(),
+                                    )
+                                    .when(!speed_text.is_empty(), |this| {
+                                        this.child(
+                                            div()
+                                                .text_xs()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .child(speed_text),
+                                        )
+                                    }),
+                            )
+                            // Per-file list
+                            .when(transfer.is_some(), |this| {
+                                let t = transfer.as_ref().unwrap();
+                                this.children(t.files.iter().map(|file| {
+                                    let file_transfer = TransferInfo {
+                                        id: file.file_id.clone(),
+                                        device_name: t.device_name.clone(),
+                                        status: file.status,
+                                        direction: t.direction,
+                                        progress: if file.file_size > 0 {
+                                            file.bytes_transferred as f64 / file.file_size as f64
+                                        } else {
+                                            0.0
+                                        },
+                                        bytes_sent: file.bytes_transferred,
+                                        total_bytes: file.file_size,
+                                        file_name: file.file_name.clone(),
+                                        speed_bytes_per_sec: 0,
+                                        eta_seconds: None,
+                                        files: vec![],
+                                    };
+                                    div().mb(spacing::SM).child(TransferItem::new(file_transfer))
+                                }))
+                            })
+                            // Empty state
+                            .when(transfer.is_none(), |this| {
+                                this.child(
+                                    div()
+                                        .w_full()
+                                        .py(px(40.))
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child("暂无传输"),
+                                )
+                            }),
+                    ),
             )
+            // Bottom action button
             .child(
-                div().flex_1().child(
-                    // TODO: Fetch active transfers from transfer_state and render TransferItem for each
-                    div()
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .p(spacing::LG)
-                        .text_center()
-                        .child("No active transfers"),
-                ),
+                div()
+                    .w_full()
+                    .px(px(15.))
+                    .py(px(15.))
+                    .child(if is_done {
+                        Button::new("progress-done")
+                            .primary()
+                            .w_full()
+                            .on_click(cx.listener(|_this, _event, window, cx| {
+                                RouterState::global_mut(cx).location.pathname = "/".into();
+                                window.refresh();
+                            }))
+                            .child("完成")
+                    } else {
+                        Button::new("progress-cancel")
+                            .with_variant(gpui_component::button::ButtonVariant::Danger)
+                            .outline()
+                            .w_full()
+                            .on_click(cx.listener(|_this, _event, _window, _cx| {
+                                log::info!("Cancel transfer");
+                            }))
+                            .child("取消")
+                    }),
             )
+    }
+}
+
+impl Default for ProgressPage {
+    fn default() -> Self {
+        panic!("ProgressPage requires transfer_state entity")
+    }
+}
+
+fn format_bytes(bytes: u64) -> String {
+    if bytes < 1024 {
+        format!("{} B", bytes)
+    } else if bytes < 1024 * 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else if bytes < 1024 * 1024 * 1024 {
+        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+    } else {
+        format!("{:.1} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
     }
 }

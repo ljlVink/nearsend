@@ -1,8 +1,5 @@
 use gpui::{div, prelude::*, px, IntoElement, Window};
-use gpui_component::{
-    button::{Button, ButtonVariants as _},
-    v_flex, ActiveTheme as _, Sizable as _, StyledExt as _,
-};
+use gpui_component::{button::{Button, ButtonVariants as _}, v_flex};
 
 /// Big button component matching localsend's BigButton design
 #[derive(IntoElement)]

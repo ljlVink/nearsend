@@ -1,7 +1,5 @@
 // Mobile-first theme and styling utilities
 
-use gpui::px;
-
 /// Mobile-first spacing constants
 pub mod spacing {
     use gpui::px;

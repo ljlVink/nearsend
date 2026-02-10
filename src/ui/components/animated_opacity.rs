@@ -1,4 +1,6 @@
-use gpui::{div, prelude::*, AnyElement, Animation, AnimationExt as _, ElementId, IntoElement, Window};
+use gpui::{
+    div, prelude::*, Animation, AnimationExt as _, AnyElement, ElementId, IntoElement, Window,
+};
 use std::time::Duration;
 
 #[derive(IntoElement)]

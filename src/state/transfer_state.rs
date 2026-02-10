@@ -2,6 +2,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+/// Transfer direction
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransferDirection {
+    Send,
+    Receive,
+}
+
 /// Transfer status
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransferStatus {
@@ -10,6 +17,17 @@ pub enum TransferStatus {
     Completed,
     Failed,
     Cancelled,
+    Skipped,
+}
+
+/// Per-file transfer progress
+#[derive(Debug, Clone)]
+pub struct FileTransferInfo {
+    pub file_id: String,
+    pub file_name: String,
+    pub file_size: u64,
+    pub bytes_transferred: u64,
+    pub status: TransferStatus,
 }
 
 /// Transfer information
@@ -18,10 +36,14 @@ pub struct TransferInfo {
     pub id: String,
     pub device_name: String,
     pub status: TransferStatus,
+    pub direction: TransferDirection,
     pub progress: f64, // 0.0 to 1.0
     pub bytes_sent: u64,
     pub total_bytes: u64,
     pub file_name: String,
+    pub speed_bytes_per_sec: u64,
+    pub eta_seconds: Option<u64>,
+    pub files: Vec<FileTransferInfo>,
 }
 
 /// Transfer state management

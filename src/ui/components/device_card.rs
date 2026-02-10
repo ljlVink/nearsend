@@ -3,9 +3,10 @@ use crate::ui::theme::{sizing, spacing};
 use gpui::{div, prelude::*, px, Window};
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, v_flex, ActiveTheme as _, Sizable as _, StyledExt as _,
+    h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _, Size, StyledExt as _,
 };
 use localsend::http::state::ClientInfo;
+use localsend::model::discovery::DeviceType;
 
 /// Device card component matching localsend's DeviceListTile design
 #[derive(IntoElement)]
@@ -70,8 +71,18 @@ impl DeviceCard {
     }
 }
 
+fn device_type_icon_path(device_type: &Option<DeviceType>) -> &'static str {
+    match device_type {
+        Some(DeviceType::Mobile) => "icons/smartphone.svg",
+        Some(DeviceType::Desktop) => "icons/monitor.svg",
+        Some(DeviceType::Web) => "icons/globe.svg",
+        Some(DeviceType::Server) | Some(DeviceType::Headless) => "icons/server.svg",
+        None => "icons/smartphone.svg",
+    }
+}
+
 impl gpui::RenderOnce for DeviceCard {
-    fn render(self, window: &mut Window, cx: &mut gpui::App) -> impl IntoElement {
+    fn render(self, _window: &mut Window, cx: &mut gpui::App) -> impl IntoElement {
         let device = self.device.clone();
         let on_select = self.on_select.clone();
         let on_favorite_tap = self.on_favorite_tap.clone();
@@ -79,9 +90,7 @@ impl gpui::RenderOnce for DeviceCard {
         let is_favorite = self.is_favorite;
         let info = self.info.clone();
         let progress = self.progress;
-
-        // Device type icon (placeholder for now)
-        let device_icon = "📱"; // TODO: Map device_type to actual icon
+        let icon_path = device_type_icon_path(&device.device_type);
 
         let subtitle = if let Some(ref info_text) = info {
             div()
@@ -96,7 +105,7 @@ impl gpui::RenderOnce for DeviceCard {
                 .gap(px(10.))
                 .flex_wrap()
                 .child(
-                    DeviceBadge::new("LAN • HTTP")
+                    DeviceBadge::new("LAN")
                         .background_color(cx.theme().muted.into())
                         .foreground_color(cx.theme().foreground.into()),
                 )
@@ -123,21 +132,26 @@ impl gpui::RenderOnce for DeviceCard {
                     .gap(spacing::MD)
                     .w_full()
                     .child(
-                        // Device icon
                         div()
                             .w(px(46.))
                             .h(px(46.))
+                            .rounded_md()
+                            .bg(cx.theme().muted)
+                            .flex()
                             .items_center()
                             .justify_center()
-                            .text_2xl()
-                            .child(device_icon),
+                            .child(
+                                Icon::default()
+                                    .path(icon_path)
+                                    .with_size(Size::Large)
+                                    .text_color(cx.theme().foreground),
+                            ),
                     )
                     .child(
                         v_flex()
                             .gap(px(5.))
                             .flex_1()
                             .child(
-                                // Device name
                                 div()
                                     .text_lg()
                                     .font_semibold()
@@ -147,7 +161,6 @@ impl gpui::RenderOnce for DeviceCard {
                             .child(subtitle),
                     )
                     .child(
-                        // Trailing: favorite button or send button
                         if on_favorite_tap.is_some() {
                             Button::new("favorite")
                                 .ghost()
@@ -156,7 +169,16 @@ impl gpui::RenderOnce for DeviceCard {
                                         handler(&device, window, cx);
                                     }
                                 })
-                                .child(if is_favorite { "❤️" } else { "🤍" })
+                                .child(
+                                    Icon::default()
+                                        .path("icons/heart.svg")
+                                        .with_size(Size::Medium)
+                                        .text_color(if is_favorite {
+                                            cx.theme().danger
+                                        } else {
+                                            cx.theme().muted_foreground
+                                        }),
+                                )
                         } else {
                             Button::new("send")
                                 .primary()
@@ -165,7 +187,7 @@ impl gpui::RenderOnce for DeviceCard {
                                         handler(&device, window, cx);
                                     }
                                 })
-                                .child("Send")
+                                .child("发送")
                         },
                     ),
             )

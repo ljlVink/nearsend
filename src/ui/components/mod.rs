@@ -6,6 +6,7 @@ pub mod device_badge;
 pub mod device_card;
 pub mod device_placeholder;
 pub mod file_list;
+pub mod history_item;
 pub mod labeled_checkbox;
 pub mod logo;
 pub mod opacity_slideshow;

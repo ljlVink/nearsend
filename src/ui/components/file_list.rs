@@ -1,5 +1,5 @@
-use crate::ui::theme::{sizing, spacing};
-use gpui::{div, prelude::*, px, Context, SharedString, Window};
+use crate::ui::theme::spacing;
+use gpui::{div, prelude::*, Window};
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex, v_flex, ActiveTheme as _, StyledExt as _,

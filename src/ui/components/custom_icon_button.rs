@@ -1,8 +1,5 @@
 use gpui::{div, prelude::*, px, ElementId, IntoElement, Window};
-use gpui_component::{
-    button::{Button, ButtonVariants as _},
-    ActiveTheme as _, StyledExt as _,
-};
+use gpui_component::button::{Button, ButtonVariants as _};
 use std::rc::Rc;
 
 /// Custom icon button matching localsend's CustomIconButton

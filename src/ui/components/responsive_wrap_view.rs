@@ -1,5 +1,5 @@
 use gpui::{div, prelude::*, px, AnyElement, IntoElement, Window};
-use gpui_component::{h_flex, ActiveTheme as _, StyledExt as _};
+use gpui_component::{h_flex, ActiveTheme as _};
 
 /// Responsive wrap view matching localsend's ResponsiveWrapView
 #[derive(IntoElement)]

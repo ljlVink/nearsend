@@ -1,9 +1,10 @@
-use gpui::{div, prelude::*, AnyElement, Animation, AnimationExt as _, IntoElement, Window};
-use gpui_component::{ActiveTheme as _, StyledExt as _};
+use gpui::{div, prelude::*, Animation, AnimationExt as _, AnyElement, IntoElement, Window};
 use std::time::Duration;
 
-/// Rotating widget matching localsend's RotatingWidget
-/// Note: Full rotation animation requires timer/cx.spawn integration
+/// Wraps a child and optionally applies a continuous pulsing animation when spinning.
+/// GPUI does not support CSS-like transform:rotate() on arbitrary elements,
+/// so we use opacity pulsing as the visual indicator of activity.
+/// For SVG icons, use Icon::with_transformation(Transformation::rotate(...)) directly.
 #[derive(IntoElement)]
 pub struct RotatingWidget {
     spinning: bool,
@@ -27,8 +28,8 @@ impl RotatingWidget {
         self
     }
 
-    pub fn reverse(mut self, reverse: bool) -> Self {
-        self.reverse = reverse;
+    pub fn reverse(mut self, _reverse: bool) -> Self {
+        self.reverse = _reverse;
         self
     }
 
@@ -51,7 +52,7 @@ impl gpui::RenderOnce for RotatingWidget {
                 "rotating-widget",
                 Animation::new(duration).repeat(),
                 move |this, delta| {
-                    let alpha = gpui::pulsating_between(0.85, 1.0)(delta);
+                    let alpha = gpui::pulsating_between(0.7, 1.0)(delta);
                     this.opacity(alpha)
                 },
             )

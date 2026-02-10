@@ -4,7 +4,7 @@ use gpui::{div, prelude::*, px, IntoElement, Window};
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, StyledExt as _};
 
 /// Device placeholder component matching localsend's DevicePlaceholderListTile
-#[derive(IntoElement)]
+#[derive(Clone, Copy, IntoElement)]
 pub struct DevicePlaceholder;
 
 impl gpui::RenderOnce for DevicePlaceholder {

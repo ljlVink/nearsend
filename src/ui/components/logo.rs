@@ -1,8 +1,7 @@
-use gpui::{div, prelude::*, px, IntoElement, Window};
+use gpui::{div, img, prelude::*, px, IntoElement, Window};
 use gpui_component::{v_flex, ActiveTheme as _, StyledExt as _};
 
-/// Logo component matching localsend's LocalSendLogo
-/// Uses primary color styled circle (image loading requires platform-specific setup)
+/// Logo component: shows app logo image with optional "NearSend" text.
 #[derive(IntoElement)]
 pub struct Logo {
     with_text: bool,
@@ -38,20 +37,43 @@ impl gpui::RenderOnce for Logo {
     fn render(self, _window: &mut Window, cx: &mut gpui::App) -> impl IntoElement {
         let size = self.size;
         let with_text = self.with_text;
+        let primary = cx.theme().primary;
+        let primary_fg = cx.theme().primary_foreground;
+        let fallback_bg = cx.theme().muted;
+        let fallback_fg = cx.theme().foreground;
 
+        let logo_path = if size <= 128.0 {
+            "img/logo-128.png"
+        } else {
+            "img/logo-256.png"
+        };
         let logo = div()
             .w(px(size))
             .h(px(size))
             .rounded_lg()
-            .bg(cx.theme().primary)
-            .items_center()
-            .justify_center()
+            .overflow_hidden()
+            .bg(primary)
             .child(
-                div()
-                    .text_2xl()
-                    .font_bold()
-                    .text_color(cx.theme().primary_foreground)
-                    .child("NS"),
+                img(logo_path)
+                    .w(px(size))
+                    .h(px(size))
+                    .object_fit(gpui::ObjectFit::Cover)
+                    .with_fallback(move || {
+                        div()
+                            .size_full()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .bg(fallback_bg)
+                            .child(
+                                div()
+                                    .text_2xl()
+                                    .font_bold()
+                                    .text_color(fallback_fg)
+                                    .child("NS"),
+                            )
+                            .into_any_element()
+                    }),
             );
 
         if with_text {
