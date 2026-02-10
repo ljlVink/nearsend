@@ -12,14 +12,6 @@ mod core;
 mod state;
 mod ui;
 
-// Legacy modules (to be removed after migration)
-// These modules are commented out as they use dependencies not in Cargo.toml
-// They will be replaced by the localsend core implementation
-// mod client;
-// mod discovery;
-// mod protocol;
-// mod server;
-
 #[openharmony_ability_derive::ability]
 pub fn openharmony_app(app: OpenHarmonyApp) {
     ohos_hilog_binding::log::init_once(Config::default().with_max_level(LevelFilter::Debug));
@@ -63,14 +55,7 @@ pub fn openharmony_app(app: OpenHarmonyApp) {
                 },
                 |window, cx| {
                     let view = cx.new(|cx| {
-                        let discovery = cx.new(|_| core::discovery::DiscoveryService::new());
-                        let server = cx.new(|_| {
-                            core::server::ServerManager::new(
-                                53317,
-                                std::path::PathBuf::from("./downloads"),
-                            )
-                        });
-                        let transfer = cx.new(|_| core::transfer::TransferService::new());
+                        let server = cx.new(|_| core::server::ServerManager::new(53317));
 
                         // Generate self-signed cert for TLS
                         let cert = match core::cert::generate_self_signed_cert() {
@@ -86,9 +71,7 @@ pub fn openharmony_app(app: OpenHarmonyApp) {
 
                         let app_state = cx.new(|_| {
                             let mut state = state::app_state::AppState::new(
-                                discovery.clone(),
                                 server.clone(),
-                                transfer.clone(),
                                 tokio_handle.clone(),
                             );
                             state.cert = cert;

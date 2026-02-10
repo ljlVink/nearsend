@@ -396,13 +396,14 @@ pub fn render_send_content(
                                         .pb(px(10.))
                                         .child(
                                             DeviceCard::new(device.clone())
-                                                .on_select(move |device, _window, cx| {
-                                                    let ip = device.token.clone();
+                                                .on_select(move |device, window, cx| {
                                                     let device = device.clone();
                                                     home_entity.update(cx, |this, cx| {
                                                         this.send_state.target_device = Some(device);
-                                                        this.send_state.target_ip = Some(ip.clone());
-                                                        this.execute_send(ip, 53317, cx);
+                                                        // ClientInfo token is device identity, not a routable IP.
+                                                        // Ask user to provide IP/port until discovery stores endpoint addresses.
+                                                        this.send_state.target_ip = None;
+                                                        this.open_send_to_address_dialog(window, cx);
                                                     });
                                                 })
                                         )

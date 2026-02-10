@@ -135,9 +135,10 @@ impl HomePage {
         let server_entity = self.app_state.read(cx).server.clone();
         let server_client_info = client_info.clone();
         let tokio_handle = self.app_state.read(cx).tokio_handle.clone();
-        match server_entity
-            .update(cx, |server, _cx| server.start(server_client_info, false, &tokio_handle))
-        {
+        let cert = self.app_state.read(cx).cert.clone();
+        match server_entity.update(cx, |server, _cx| {
+            server.start(server_client_info, false, cert, &tokio_handle)
+        }) {
             Ok(()) => {
                 self.receive_state.server_running = true;
                 self.settings_state.server_running = true;
@@ -148,21 +149,6 @@ impl HomePage {
                 self.receive_state.server_running = false;
             }
         }
-
-        // Initialize transfer client with cert if available
-        let cert = self.app_state.read(cx).cert.clone();
-        if let Some(cert) = cert {
-            let transfer_entity = self.app_state.read(cx).transfer.clone();
-            transfer_entity.update(cx, |transfer, _cx| {
-                transfer.init_sync(&cert.private_key_pem, &cert.cert_pem);
-            });
-        }
-
-        // Start discovery (currently a stub)
-        let discovery_entity = self.app_state.read(cx).discovery.clone();
-        discovery_entity.update(cx, |discovery, _cx| {
-            discovery.start_sync();
-        });
     }
 
     fn init_select_states(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -356,8 +342,19 @@ impl HomePage {
 
     /// Execute the send flow: build entries from selected_files, spawn thread with tokio runtime.
     pub(super) fn execute_send(&mut self, ip: String, port: u16, cx: &mut Context<Self>) {
-        use crate::core::transfer::SendFileEntry;
         use localsend::http::dto::{ProtocolType, RegisterDto};
+
+        enum SendFileEntry {
+            Text {
+                content: String,
+            },
+            File {
+                path: std::path::PathBuf,
+                name: String,
+                size: u64,
+                file_type: String,
+            },
+        }
 
         let files: Vec<SendFileEntry> = self
             .send_state
@@ -435,8 +432,6 @@ impl HomePage {
                         }
                     };
 
-                let protocol = ProtocolType::Http;
-
                 // Build FileDto map
                 let mut file_map = std::collections::HashMap::new();
                 let mut entry_map = std::collections::HashMap::new();
@@ -473,22 +468,77 @@ impl HomePage {
                     files: file_map,
                 };
 
-                log::info!("Sending prepare-upload to {}:{}", ip, port);
-                let response = match client
-                    .prepare_upload(&protocol, &ip, port, None, payload)
-                    .await
-                {
-                    Ok(r) => r,
-                    Err(e) => {
-                        log::error!("prepare-upload failed: {}", e);
+                // Target client protocol can be HTTP or HTTPS.
+                // Try HTTP first for backward compatibility, then HTTPS fallback.
+                let protocols = [ProtocolType::Http, ProtocolType::Https];
+                let mut selected_protocol: Option<ProtocolType> = None;
+                let mut response: Option<localsend::http::dto::PrepareUploadResponseDto> = None;
+                let mut last_err: Option<String> = None;
+
+                for protocol in protocols {
+                    log::info!(
+                        "Trying protocol={} for {}:{}",
+                        protocol.as_str(),
+                        ip,
+                        port
+                    );
+
+                    let public_key = match client.register(&protocol, &ip, port, payload.info.clone()).await {
+                        Ok(register_result) => register_result.public_key,
+                        Err(e) => {
+                            // Some peers may reject/ignore register variants. Keep compatibility by still trying prepare-upload.
+                            log::warn!(
+                                "register failed via {} for {}:{}: {}",
+                                protocol.as_str(),
+                                ip,
+                                port,
+                                e
+                            );
+                            None
+                        }
+                    };
+
+                    match client
+                        .prepare_upload(&protocol, &ip, port, public_key, payload.clone())
+                        .await
+                    {
+                        Ok(r) => {
+                            selected_protocol = Some(protocol);
+                            response = Some(r);
+                            break;
+                        }
+                        Err(e) => {
+                            let msg = e.to_string();
+                            log::warn!(
+                                "prepare-upload failed via {} for {}:{}: {}",
+                                protocol.as_str(),
+                                ip,
+                                port,
+                                msg
+                            );
+                            last_err = Some(msg);
+                        }
+                    }
+                }
+
+                let (protocol, response) = match (selected_protocol, response) {
+                    (Some(protocol), Some(response)) => (protocol, response),
+                    _ => {
+                        log::error!(
+                            "prepare-upload failed for {}:{} after trying HTTP+HTTPS. last_error={}",
+                            ip,
+                            port,
+                            last_err.unwrap_or_else(|| "unknown".to_string())
+                        );
                         return;
                     }
                 };
 
                 let session_id = response.session_id.clone();
                 log::info!(
-                    "Got session_id: {}, accepted files: {}",
+                    "Got session_id: {}, protocol: {}, accepted files: {}",
                     session_id,
+                    protocol.as_str(),
                     response.files.len()
                 );
 
