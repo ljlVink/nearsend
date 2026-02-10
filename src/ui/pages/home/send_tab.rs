@@ -341,9 +341,8 @@ pub fn render_send_content(
                                                                 "send-scan",
                                                                 "icons/loader.svg",
                                                                 cx,
-                                                                |this, _window, _cx| {
-                                                                    this.send_state.scanning = true;
-                                                                    this.send_state.nearby_devices.clear();
+                                                                |this, _window, cx| {
+                                                                    this.start_discovery_scan(cx);
                                                                 },
                                                             ),
                                                         )
@@ -400,10 +399,18 @@ pub fn render_send_content(
                                                     let device = device.clone();
                                                     home_entity.update(cx, |this, cx| {
                                                         this.send_state.target_device = Some(device);
-                                                        // ClientInfo token is device identity, not a routable IP.
-                                                        // Ask user to provide IP/port until discovery stores endpoint addresses.
-                                                        this.send_state.target_ip = None;
-                                                        this.open_send_to_address_dialog(window, cx);
+                                                        if let Some(endpoint) = this
+                                                            .send_state
+                                                            .target_device
+                                                            .as_ref()
+                                                            .and_then(|d| this.send_state.nearby_endpoints.get(&d.token))
+                                                            .cloned()
+                                                        {
+                                                            this.execute_send(endpoint.ip, endpoint.port, cx);
+                                                        } else {
+                                                            this.send_state.target_ip = None;
+                                                            this.open_send_to_address_dialog(window, cx);
+                                                        }
                                                     });
                                                 })
                                         )

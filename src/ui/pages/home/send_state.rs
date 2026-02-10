@@ -1,6 +1,7 @@
 //! Send tab state and types (selected files, nearby devices, send mode, etc.).
 
 use localsend::http::state::ClientInfo;
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// Send content type: 文件 / 媒体 / 文本 / 文件夹
@@ -31,12 +32,20 @@ pub struct SelectedFileInfo {
     pub text_content: Option<String>, // For text messages
 }
 
+#[derive(Clone, Debug)]
+pub struct DeviceEndpoint {
+    pub ip: String,
+    pub port: u16,
+    pub https: bool,
+}
+
 /// Send tab state
 pub struct SendPageState {
     pub selected_files: Vec<SelectedFileInfo>,
     pub selected_files_total_size: u64,
     pub send_content_type: SendContentType,
     pub nearby_devices: Vec<ClientInfo>,
+    pub nearby_endpoints: HashMap<String, DeviceEndpoint>, // key: token(fingerprint)
     pub scanning: bool,
     pub local_ips: Vec<String>,
     pub send_mode: SendMode,
@@ -55,6 +64,7 @@ impl Default for SendPageState {
             selected_files_total_size: 0,
             send_content_type: SendContentType::default(),
             nearby_devices: Vec::new(),
+            nearby_endpoints: HashMap::new(),
             scanning: false,
             local_ips: vec!["192.168.1.100".to_string()],
             send_mode: SendMode::Single,
