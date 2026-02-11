@@ -23,6 +23,7 @@ impl gpui::RenderOnce for DevicePlaceholder {
         let cycle_ms: u64 = 3000 * icon_count as u64;
 
         div()
+            .relative()
             .bg(cx.theme().secondary)
             .border_1()
             .border_color(cx.theme().border)
@@ -33,7 +34,8 @@ impl gpui::RenderOnce for DevicePlaceholder {
             .child(
                 h_flex()
                     .gap(spacing::MD)
-                    .items_center()
+                    .items_start()
+                    .w_full()
                     .child(
                         // Rotating device icon
                         div()
@@ -99,6 +101,16 @@ impl gpui::RenderOnce for DevicePlaceholder {
                                     ),
                             ),
                     ),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .right(px(14.))
+                    .top(px(14.))
+                    .w(px(24.))
+                    .h(px(24.))
+                    .rounded_full()
+                    .bg(muted),
             )
     }
 }

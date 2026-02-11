@@ -3,6 +3,7 @@
 
 use crate::state::{
     app_state::AppState, device_state::DeviceState, history_state::HistoryState,
+    send_selection_state::SendSelectionState,
     transfer_state::TransferState,
 };
 use crate::ui::pages::{HistoryPage, HomePage, ProgressPage, SelectedFilesPage};
@@ -26,8 +27,15 @@ impl AppRoot {
         transfer_state: Entity<TransferState>,
         history_state: Entity<HistoryState>,
     ) -> Self {
-        let home_entity =
-            cx.new(|_| HomePage::new(app_state, device_state, transfer_state.clone()));
+        let send_selection_state = cx.new(|_| SendSelectionState::default());
+        let home_entity = cx.new(|_| {
+            HomePage::new(
+                app_state,
+                device_state,
+                transfer_state.clone(),
+                send_selection_state.clone(),
+            )
+        });
         let history_entity = cx.new(|_| HistoryPage::new().with_history_state(history_state));
         let progress_entity = cx.new(|_| {
             ProgressPage::new(
@@ -35,7 +43,8 @@ impl AppRoot {
                 crate::state::transfer_state::TransferDirection::Send,
             )
         });
-        let selected_files_entity = cx.new(|_| SelectedFilesPage::new());
+        let selected_files_entity =
+            cx.new(|_| SelectedFilesPage::new(send_selection_state.clone()));
         Self {
             home_entity,
             history_entity,

@@ -1,41 +1,176 @@
 //! Selected files page: review and manage files before sending.
 //! Route: /send/files
 
-use crate::ui::pages::home::SelectedFileInfo;
+use crate::state::send_selection_state::SendSelectionState;
 use crate::ui::theme::spacing;
-use gpui::{div, prelude::*, px, Context, Window};
+use gpui::{div, prelude::*, px, Context, Entity, Window};
+use gpui_component::input::{Input, InputState};
 use gpui_component::scroll::ScrollableElement as _;
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _, Size, StyledExt as _,
+    h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _, Size, StyledExt as _, WindowExt as _,
 };
 use gpui_router::RouterState;
 
 /// Selected files page state.
 pub struct SelectedFilesPage {
-    files: Vec<SelectedFileInfo>,
+    send_selection_state: Entity<SendSelectionState>,
 }
 
 impl SelectedFilesPage {
-    pub fn new() -> Self {
-        Self { files: Vec::new() }
+    pub fn new(send_selection_state: Entity<SendSelectionState>) -> Self {
+        Self {
+            send_selection_state,
+        }
     }
 
-    pub fn set_files(&mut self, files: Vec<SelectedFileInfo>) {
-        self.files = files;
+    fn open_notice_dialog(&self, msg: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let msg = msg.to_string();
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            dialog
+                .title("提示")
+                .overlay(true)
+                .w(px(320.))
+                .child(div().w_full().text_sm().child(msg.clone()))
+                .alert()
+                .button_props(
+                    gpui_component::dialog::DialogButtonProps::default().ok_text("确定"),
+                )
+        });
+    }
+
+    fn open_text_edit_dialog(
+        &self,
+        index: usize,
+        initial: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let input_state = cx.new(|cx| {
+            InputState::new(window, cx)
+                .auto_grow(3, 5)
+                .placeholder("输入文本内容")
+                .default_value(initial)
+                .soft_wrap(true)
+        });
+        let send_state = self.send_selection_state.clone();
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let input_for_ok = input_state.clone();
+            let send_state_for_ok = send_state.clone();
+            dialog
+                .title("编辑文本")
+                .overlay(true)
+                .w(px(360.))
+                .child(div().w_full().child(Input::new(&input_state).appearance(true)))
+                .confirm()
+                .button_props(
+                    gpui_component::dialog::DialogButtonProps::default()
+                        .ok_text("确认")
+                        .cancel_text("取消"),
+                )
+                .on_ok(move |_event, _window, cx| {
+                    let text = input_for_ok.read(cx).value().to_string();
+                    if text.is_empty() {
+                        return false;
+                    }
+                    send_state_for_ok.update(cx, |state, _| {
+                        if index == usize::MAX {
+                            state.add_text(text.clone());
+                        } else {
+                            state.update_text(index, text.clone());
+                        }
+                    });
+                    true
+                })
+        });
+    }
+
+    fn open_add_dialog(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let page = cx.entity();
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let page_text = page.clone();
+            let page_file = page.clone();
+            let page_folder = page.clone();
+            let page_clipboard = page.clone();
+            dialog
+                .title("加入文件")
+                .overlay(true)
+                .w(px(560.))
+                .child(div().w_full().text_lg().child("你想加入什么文件?"))
+                .child(
+                    h_flex()
+                        .w_full()
+                        .gap(px(10.))
+                        .flex_wrap()
+                        .child(
+                            Button::new("selected-add-file")
+                                .primary()
+                                .on_click(move |_event, window, cx| {
+                                    window.close_dialog(cx);
+                                    page_file.update(cx, |this, cx| {
+                                        this.open_notice_dialog("文件选择器即将接入。", window, cx);
+                                    });
+                                })
+                                .child("文件"),
+                        )
+                        .child(
+                            Button::new("selected-add-folder")
+                                .primary()
+                                .on_click(move |_event, window, cx| {
+                                    window.close_dialog(cx);
+                                    page_folder.update(cx, |this, cx| {
+                                        this.open_notice_dialog("文件夹选择即将接入。", window, cx);
+                                    });
+                                })
+                                .child("文件夹"),
+                        )
+                        .child(
+                            Button::new("selected-add-text")
+                                .primary()
+                                .on_click(move |_event, window, cx| {
+                                    window.close_dialog(cx);
+                                    page_text.update(cx, |this, cx| {
+                                        this.open_text_edit_dialog(
+                                            usize::MAX,
+                                            String::new(),
+                                            window,
+                                            cx,
+                                        );
+                                    });
+                                })
+                                .child("文本"),
+                        )
+                        .child(
+                            Button::new("selected-add-clipboard")
+                                .primary()
+                                .on_click(move |_event, window, cx| {
+                                    window.close_dialog(cx);
+                                    page_clipboard.update(cx, |this, cx| {
+                                        this.open_notice_dialog("剪贴板发送即将接入。", window, cx);
+                                    });
+                                })
+                                .child("剪贴板"),
+                        ),
+                )
+                .alert()
+                .button_props(
+                    gpui_component::dialog::DialogButtonProps::default().ok_text("关闭"),
+                )
+        });
     }
 }
 
 impl gpui::Render for SelectedFilesPage {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
-        let files = self.files.clone();
-        let total_size: u64 = files.iter().map(|f| f.size).sum();
+        let files = self.send_selection_state.read(cx).items().to_vec();
+        let total_size = self.send_selection_state.read(cx).total_size();
         let file_count = files.len();
+        let page_entity = cx.entity();
+        let send_state = self.send_selection_state.clone();
 
         v_flex()
             .size_full()
             .bg(cx.theme().background)
-            // App bar
             .child(
                 h_flex()
                     .w_full()
@@ -45,15 +180,15 @@ impl gpui::Render for SelectedFilesPage {
                     .child(
                         Button::new("files-back")
                             .ghost()
+                            .on_click(cx.listener(|_this, _event, window, cx| {
+                                RouterState::global_mut(cx).location.pathname = "/".into();
+                                window.refresh();
+                            }))
                             .child(
                                 Icon::default()
                                     .path("icons/arrow-left.svg")
                                     .with_size(Size::Small),
-                            )
-                            .on_click(cx.listener(|_this, _event, window, cx| {
-                                RouterState::global_mut(cx).location.pathname = "/".into();
-                                window.refresh();
-                            })),
+                            ),
                     )
                     .child(
                         div()
@@ -62,27 +197,55 @@ impl gpui::Render for SelectedFilesPage {
                             .text_base()
                             .font_semibold()
                             .text_color(cx.theme().foreground)
-                            .child(format!("已选文件 ({})", file_count)),
+                            .child("选择"),
                     )
-                    .child(
-                        Button::new("files-clear-all")
-                            .ghost()
-                            .on_click(cx.listener(|this, _event, _window, _cx| {
-                                this.files.clear();
-                            }))
-                            .child(div().text_sm().text_color(cx.theme().danger).child("清空")),
-                    ),
+                    .child(div().w(px(40.))),
             )
-            // File list
             .child(
                 div().flex_1().w_full().overflow_y_scrollbar().child(
                     v_flex()
                         .w_full()
                         .px(px(15.))
                         .gap(spacing::SM)
+                        .child(
+                            h_flex()
+                                .w_full()
+                                .justify_between()
+                                .items_center()
+                                .child(
+                                    v_flex()
+                                        .gap(px(2.))
+                                        .child(
+                                            div()
+                                                .text_lg()
+                                                .text_color(cx.theme().foreground)
+                                                .child(format!("文件： {}", file_count)),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_lg()
+                                                .text_color(cx.theme().foreground)
+                                                .child(format!("大小： {}", format_file_size(total_size))),
+                                        ),
+                                )
+                                .child(
+                                    Button::new("files-clear-all")
+                                        .primary()
+                                        .on_click(cx.listener(move |_this, _event, _window, _cx| {
+                                            send_state.update(_cx, |state, _| {
+                                                state.clear();
+                                            });
+                                        }))
+                                        .child("全部删除"),
+                                ),
+                        )
                         .children(files.iter().enumerate().map(|(i, file)| {
                             let file_name = file.name.clone();
                             let file_size = format_file_size(file.size);
+                            let is_text = file.text_content.is_some();
+                            let text = file.text_content.clone().unwrap_or_default();
+                            let page_for_edit = page_entity.clone();
+                            let send_state_for_delete = self.send_selection_state.clone();
                             div()
                                 .bg(cx.theme().secondary)
                                 .border_1()
@@ -96,18 +259,18 @@ impl gpui::Render for SelectedFilesPage {
                                         .w_full()
                                         .child(
                                             div()
-                                                .w(px(36.))
-                                                .h(px(36.))
+                                                .w(px(56.))
+                                                .h(px(56.))
                                                 .rounded_md()
-                                                .bg(cx.theme().muted)
+                                                .bg(cx.theme().primary.opacity(0.18))
                                                 .flex()
                                                 .items_center()
                                                 .justify_center()
                                                 .child(
                                                     Icon::default()
-                                                        .path("icons/file.svg")
-                                                        .with_size(Size::Small)
-                                                        .text_color(cx.theme().muted_foreground),
+                                                        .path("icons/book-open.svg")
+                                                        .with_size(Size::Medium)
+                                                        .text_color(cx.theme().foreground),
                                                 ),
                                         )
                                         .child(
@@ -116,32 +279,46 @@ impl gpui::Render for SelectedFilesPage {
                                                 .gap(px(2.))
                                                 .child(
                                                     div()
-                                                        .text_sm()
+                                                        .text_base()
                                                         .text_color(cx.theme().foreground)
-                                                        .child(file_name),
+                                                        .child(format!("\"{}\"", file_name)),
                                                 )
                                                 .child(
                                                     div()
-                                                        .text_xs()
+                                                        .text_sm()
                                                         .text_color(cx.theme().muted_foreground)
                                                         .child(file_size),
                                                 ),
                                         )
                                         .child(
-                                            Button::new(format!("delete-file-{}", i))
-                                                .ghost()
-                                                .on_click(cx.listener(
-                                                    move |this, _event, _window, _cx| {
-                                                        if i < this.files.len() {
-                                                            this.files.remove(i);
-                                                        }
-                                                    },
-                                                ))
+                                            h_flex()
+                                                .gap(px(8.))
                                                 .child(
-                                                    Icon::default()
-                                                        .path("icons/trash.svg")
-                                                        .with_size(Size::Small)
-                                                        .text_color(cx.theme().danger),
+                                                    Button::new(format!("edit-file-{}", i))
+                                                        .ghost()
+                                                        .on_click(cx.listener(move |_this, _event, window, cx| {
+                                                            if is_text {
+                                                                page_for_edit.update(cx, |this, cx| {
+                                                                    this.open_text_edit_dialog(i, text.clone(), window, cx);
+                                                                });
+                                                            }
+                                                        }))
+                                                        .child("编辑"),
+                                                )
+                                                .child(
+                                                    Button::new(format!("delete-file-{}", i))
+                                                        .ghost()
+                                                        .on_click(cx.listener(move |_this, _event, _window, _cx| {
+                                                            send_state_for_delete.update(_cx, |state, _| {
+                                                                state.remove(i);
+                                                            });
+                                                        }))
+                                                        .child(
+                                                            Icon::default()
+                                                                .path("icons/trash.svg")
+                                                                .with_size(Size::Small)
+                                                                .text_color(cx.theme().danger),
+                                                        ),
                                                 ),
                                         ),
                                 )
@@ -160,23 +337,16 @@ impl gpui::Render for SelectedFilesPage {
                         }),
                 ),
             )
-            // Bottom bar
             .child(
                 div().w_full().px(px(15.)).py(px(15.)).child(
                     h_flex()
-                        .justify_between()
+                        .justify_end()
                         .items_center()
-                        .child(
-                            div()
-                                .text_sm()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(format!("总计: {}", format_file_size(total_size))),
-                        )
                         .child(
                             Button::new("add-more-files")
                                 .primary()
-                                .on_click(cx.listener(|_this, _event, _window, _cx| {
-                                    log::info!("Add more files");
+                                .on_click(cx.listener(|this, _event, window, cx| {
+                                    this.open_add_dialog(window, cx);
                                 }))
                                 .child(
                                     h_flex()
@@ -192,12 +362,6 @@ impl gpui::Render for SelectedFilesPage {
                         ),
                 ),
             )
-    }
-}
-
-impl Default for SelectedFilesPage {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

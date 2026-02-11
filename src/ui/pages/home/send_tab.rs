@@ -270,7 +270,9 @@ pub fn render_send_content(
                                                     Button::new("clear")
                                                         .ghost()
                                                         .on_click(cx.listener(|this, _event, _window, _cx| {
-                                                            this.send_state.selected_files.clear();
+                                                            this.send_selection_state.update(_cx, |state, _| {
+                                                                state.clear();
+                                                            });
                                                         }))
                                                         .child(
                                                             Icon::default()
@@ -341,16 +343,19 @@ pub fn render_send_content(
                                                 .child(
                                                     Button::new("edit")
                                                         .ghost()
-                                                        .on_click(cx.listener(|_this, _event, _window, _cx| {
-                                                            log::info!("Edit clicked");
+                                                        .on_click(cx.listener(|_this, _event, window, cx| {
+                                                            gpui_router::RouterState::global_mut(cx)
+                                                                .location
+                                                                .pathname = "/send/files".into();
+                                                            window.refresh();
                                                         }))
                                                         .child("编辑"),
                                                 )
                                                 .child(
                                                     Button::new("add")
                                                         .with_variant(gpui_component::button::ButtonVariant::Primary)
-                                                        .on_click(cx.listener(|_this, _event, _window, _cx| {
-                                                            log::info!("Add clicked");
+                                                        .on_click(cx.listener(|this, _event, window, cx| {
+                                                            this.open_add_content_dialog(window, cx);
                                                         }))
                                                         .child(
                                                             h_flex()
@@ -417,7 +422,7 @@ pub fn render_send_content(
                                                     if !this.ensure_has_selected_files(window, cx) {
                                                         return;
                                                     }
-                                                    this.open_send_to_address_dialog(window, cx);
+                                                    this.open_send_target_dialog(window, cx);
                                                 },
                                             ))
                                             // Favorites button
@@ -455,31 +460,48 @@ pub fn render_send_content(
                                 .w_full()
                                 .children(app.send_state.nearby_devices.iter().map(|device| {
                                     let home_entity = home_entity.clone();
+                                    let home_for_favorite = home_entity.clone();
+                                    let home_for_select = home_entity.clone();
+                                    let device_for_select = device.clone();
+                                    let token = device.token.clone();
+                                    let is_favorite = app.send_state.favorite_tokens.contains(&token);
                                     div()
+                                        .id(format!("device-row-{}", token))
                                         .px(px(15.))
                                         .pb(px(10.))
+                                        .on_click(cx.listener(move |_this, _event, window, cx| {
+                                            let device = device_for_select.clone();
+                                            home_for_select.update(cx, |this, cx| {
+                                                if !this.ensure_has_selected_files(window, cx) {
+                                                    return;
+                                                }
+                                                this.send_state.target_device = Some(device);
+                                                if let Some(endpoint) = this
+                                                    .send_state
+                                                    .target_device
+                                                    .as_ref()
+                                                    .and_then(|d| this.send_state.nearby_endpoints.get(&d.token))
+                                                    .cloned()
+                                                {
+                                                    this.execute_send(endpoint.ip, endpoint.port, cx);
+                                                } else {
+                                                    this.send_state.target_ip = None;
+                                                    this.open_send_to_address_dialog(window, cx);
+                                                }
+                                            });
+                                        }))
                                         .child(
                                             DeviceCard::new(device.clone())
-                                                .on_select(move |device, window, cx| {
-                                                    let device = device.clone();
-                                                    home_entity.update(cx, |this, cx| {
-                                                        if !this.ensure_has_selected_files(window, cx) {
-                                                            return;
-                                                        }
-                                                        this.send_state.target_device = Some(device);
-                                                        if let Some(endpoint) = this
-                                                            .send_state
-                                                            .target_device
-                                                            .as_ref()
-                                                            .and_then(|d| this.send_state.nearby_endpoints.get(&d.token))
-                                                            .cloned()
-                                                        {
-                                                            this.execute_send(endpoint.ip, endpoint.port, cx);
-                                                        } else {
-                                                            this.send_state.target_ip = None;
-                                                            this.open_send_to_address_dialog(window, cx);
-                                                        }
-                                                    });
+                                                .is_favorite(is_favorite)
+                                                .on_favorite_tap({
+                                                    let token = token.clone();
+                                                    move |_device, _window, cx| {
+                                                        home_for_favorite.update(cx, |this, _cx| {
+                                                            if !this.send_state.favorite_tokens.insert(token.clone()) {
+                                                                this.send_state.favorite_tokens.remove(&token);
+                                                            }
+                                                        });
+                                                    }
                                                 })
                                         )
                                 }))

@@ -12,9 +12,13 @@ pub use receive_state::{IncomingTransferRequest, QuickSaveMode, ReceivePageState
 pub use send_state::{SelectedFileInfo, SendContentType, SendMode, SendPageState};
 pub use settings_state::{ColorMode, SettingsPageState, ThemeMode};
 
-use crate::state::{app_state::AppState, device_state::DeviceState, transfer_state::TransferState};
+use crate::state::{
+    app_state::AppState, device_state::DeviceState, send_selection_state::SendSelectionState,
+    transfer_state::TransferState,
+};
 use gpui::{div, prelude::*, px, AnyElement, Context, Entity, IntoElement, Window};
 use gpui_component::input::{Input, InputState};
+use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::select::{Select, SelectEvent, SelectState};
 use gpui_component::{
     h_flex, v_flex, ActiveTheme as _, Icon, IndexPath, Sizable as _, StyledExt as _, WindowExt as _,
@@ -36,6 +40,7 @@ pub struct HomePage {
     pub(super) app_state: Entity<AppState>,
     pub(super) device_state: Entity<DeviceState>,
     pub(super) transfer_state: Entity<TransferState>,
+    pub(super) send_selection_state: Entity<SendSelectionState>,
     pub(super) current_tab: TabType,
     services_started: bool,
     pub(super) receive_state: ReceivePageState,
@@ -57,11 +62,13 @@ impl HomePage {
         app_state: Entity<AppState>,
         device_state: Entity<DeviceState>,
         transfer_state: Entity<TransferState>,
+        send_selection_state: Entity<SendSelectionState>,
     ) -> Self {
         Self {
             app_state,
             device_state,
             transfer_state,
+            send_selection_state,
             current_tab: TabType::Receive,
             services_started: false,
             receive_state: ReceivePageState::default(),
@@ -79,6 +86,7 @@ impl HomePage {
 
 impl gpui::Render for HomePage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_selected_files_from_shared(cx);
         if !self.services_started {
             self.services_started = true;
             // Initialize select states for settings dropdowns
@@ -114,6 +122,22 @@ impl gpui::Render for HomePage {
 }
 
 impl HomePage {
+    fn sync_selected_files_from_shared(&mut self, cx: &mut Context<Self>) {
+        let items = self.send_selection_state.read(cx).items().to_vec();
+        let total = self.send_selection_state.read(cx).total_size();
+        self.send_state.selected_files = items
+            .into_iter()
+            .map(|item| send_state::SelectedFileInfo {
+                path: item.path,
+                name: item.name,
+                size: item.size,
+                file_type: item.file_type,
+                text_content: item.text_content,
+            })
+            .collect();
+        self.send_state.selected_files_total_size = total;
+    }
+
     /// Start the HTTP server and discovery service.
     fn start_services(&mut self, cx: &mut Context<Self>) {
         if let Some(ip) = detect_primary_ipv4() {
@@ -306,6 +330,83 @@ impl HomePage {
         }
     }
 
+    pub(super) fn open_add_content_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let home_entity = cx.entity();
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let home_file = home_entity.clone();
+            let home_folder = home_entity.clone();
+            let home_text = home_entity.clone();
+            let home_clipboard = home_entity.clone();
+            dialog
+                .title("加入文件")
+                .overlay(true)
+                .w(px(560.))
+                .child(div().w_full().text_lg().child("你想加入什么文件?"))
+                .child(
+                    h_flex()
+                        .w_full()
+                        .gap(px(10.))
+                        .flex_wrap()
+                        .child(
+                            Button::new("add-file")
+                                .primary()
+                                .on_click(move |_event, window, cx| {
+                                    window.close_dialog(cx);
+                                    home_file.update(cx, |this, cx| {
+                                        this.handle_pick_content(SendContentType::File, window, cx);
+                                    });
+                                })
+                                .child("文件"),
+                        )
+                        .child(
+                            Button::new("add-folder")
+                                .primary()
+                                .on_click(move |_event, window, cx| {
+                                    window.close_dialog(cx);
+                                    home_folder.update(cx, |this, cx| {
+                                        this.handle_pick_content(
+                                            SendContentType::Folder,
+                                            window,
+                                            cx,
+                                        );
+                                    });
+                                })
+                                .child("文件夹"),
+                        )
+                        .child(
+                            Button::new("add-text")
+                                .primary()
+                                .on_click(move |_event, window, cx| {
+                                    window.close_dialog(cx);
+                                    home_text.update(cx, |this, cx| {
+                                        this.handle_pick_content(SendContentType::Text, window, cx);
+                                    });
+                                })
+                                .child("文本"),
+                        )
+                        .child(
+                            Button::new("add-clipboard")
+                                .primary()
+                                .on_click(move |_event, window, cx| {
+                                    window.close_dialog(cx);
+                                    home_clipboard.update(cx, |this, cx| {
+                                        this.handle_pick_content(
+                                            SendContentType::Media,
+                                            window,
+                                            cx,
+                                        );
+                                    });
+                                })
+                                .child("剪贴板"),
+                        ),
+                )
+                .alert()
+                .button_props(
+                    gpui_component::dialog::DialogButtonProps::default().ok_text("关闭"),
+                )
+        });
+    }
+
     pub(super) fn cycle_send_mode(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.send_state.send_mode = match self.send_state.send_mode {
             SendMode::Single => SendMode::Multiple,
@@ -444,18 +545,10 @@ impl HomePage {
                 .on_ok(move |_event, _window, cx| {
                     let text = input_for_ok.read(cx).value().to_string();
                     if !text.is_empty() {
-                        let text_bytes = text.as_bytes().len() as u64;
                         home_for_ok.update(cx, |this, _cx| {
-                            this.send_state
-                                .selected_files
-                                .push(send_state::SelectedFileInfo {
-                                    path: std::path::PathBuf::from("text.txt"),
-                                    name: "text.txt".to_string(),
-                                    size: text_bytes,
-                                    file_type: "text/plain".to_string(),
-                                    text_content: Some(text.clone()),
-                                });
-                            this.send_state.selected_files_total_size += text_bytes;
+                            this.send_selection_state.update(_cx, |state, _| {
+                                state.add_text(text.clone());
+                            });
                         });
                     }
                     true
@@ -514,6 +607,64 @@ impl HomePage {
                     }
                     true
                 })
+        });
+    }
+
+    pub(super) fn open_send_target_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let home_entity = cx.entity();
+        let nearby = self.send_state.nearby_devices.clone();
+        let endpoints = self.send_state.nearby_endpoints.clone();
+
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let home_for_manual = home_entity.clone();
+            dialog
+                .title("选择发送目标")
+                .overlay(true)
+                .w(px(420.))
+                .child(
+                    v_flex()
+                        .w_full()
+                        .gap(px(8.))
+                        .child(div().text_sm().child("附近设备"))
+                        .children(nearby.iter().map(|device| {
+                            let alias = device.alias.clone();
+                            let token = device.token.clone();
+                            let endpoint = endpoints.get(&token).cloned();
+                            let home_for_device = home_entity.clone();
+                            Button::new(format!("send-target-device-{}", token))
+                                .outline()
+                                .w_full()
+                                .justify_start()
+                                .on_click(move |_event, window, cx| {
+                                    window.close_dialog(cx);
+                                    home_for_device.update(cx, |this, cx| {
+                                        if let Some(ep) = endpoint.clone() {
+                                            this.execute_send(ep.ip, ep.port, cx);
+                                        } else {
+                                            this.open_send_to_address_dialog(window, cx);
+                                        }
+                                    });
+                                })
+                                .child(alias)
+                        }))
+                        .child(div().h(px(4.)))
+                        .child(
+                            Button::new("send-target-manual")
+                                .primary()
+                                .w_full()
+                                .on_click(move |_event, window, cx| {
+                                    window.close_dialog(cx);
+                                    home_for_manual.update(cx, |this, cx| {
+                                        this.open_send_to_address_dialog(window, cx);
+                                    });
+                                })
+                                .child("输入 IP 地址"),
+                        ),
+                )
+                .alert()
+                .button_props(
+                    gpui_component::dialog::DialogButtonProps::default().ok_text("关闭"),
+                )
         });
     }
 

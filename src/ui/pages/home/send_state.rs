@@ -1,7 +1,7 @@
 //! Send tab state and types (selected files, nearby devices, send mode, etc.).
 
 use localsend::http::state::ClientInfo;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 /// Send content type: 文件 / 媒体 / 文本 / 文件夹
@@ -56,6 +56,7 @@ pub struct SendPageState {
     pub target_ip: Option<String>,
     pub pending_send: bool,
     pub has_scanned_once: bool,
+    pub favorite_tokens: HashSet<String>,
 }
 
 impl Default for SendPageState {
@@ -76,6 +77,7 @@ impl Default for SendPageState {
             target_ip: None,
             pending_send: false,
             has_scanned_once: false,
+            favorite_tokens: HashSet::new(),
         }
     }
 }
