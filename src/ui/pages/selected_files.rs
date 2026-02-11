@@ -33,9 +33,7 @@ impl SelectedFilesPage {
                 .w(px(320.))
                 .child(div().w_full().text_sm().child(msg.clone()))
                 .alert()
-                .button_props(
-                    gpui_component::dialog::DialogButtonProps::default().ok_text("确定"),
-                )
+                .button_props(gpui_component::dialog::DialogButtonProps::default().ok_text("确定"))
         });
     }
 
@@ -61,7 +59,11 @@ impl SelectedFilesPage {
                 .title("编辑文本")
                 .overlay(true)
                 .w(px(360.))
-                .child(div().w_full().child(Input::new(&input_state).appearance(true)))
+                .child(
+                    div()
+                        .w_full()
+                        .child(Input::new(&input_state).appearance(true)),
+                )
                 .confirm()
                 .button_props(
                     gpui_component::dialog::DialogButtonProps::default()
@@ -218,9 +220,7 @@ impl SelectedFilesPage {
                         ),
                 )
                 .alert()
-                .button_props(
-                    gpui_component::dialog::DialogButtonProps::default().ok_text("关闭"),
-                )
+                .button_props(gpui_component::dialog::DialogButtonProps::default().ok_text("关闭"))
         });
     }
 }
@@ -289,17 +289,22 @@ impl gpui::Render for SelectedFilesPage {
                                             div()
                                                 .text_lg()
                                                 .text_color(cx.theme().foreground)
-                                                .child(format!("大小： {}", format_file_size(total_size))),
+                                                .child(format!(
+                                                    "大小： {}",
+                                                    format_file_size(total_size)
+                                                )),
                                         ),
                                 )
                                 .child(
                                     Button::new("files-clear-all")
                                         .primary()
-                                        .on_click(cx.listener(move |_this, _event, _window, _cx| {
-                                            send_state.update(_cx, |state, _| {
-                                                state.clear();
-                                            });
-                                        }))
+                                        .on_click(cx.listener(
+                                            move |_this, _event, _window, _cx| {
+                                                send_state.update(_cx, |state, _| {
+                                                    state.clear();
+                                                });
+                                            },
+                                        ))
                                         .child("全部删除"),
                                 ),
                         )
@@ -360,20 +365,32 @@ impl gpui::Render for SelectedFilesPage {
                                                     this.child(
                                                         Button::new(format!("edit-file-{}", i))
                                                             .ghost()
-                                                            .on_click(cx.listener(move |this, _event, window, cx| {
-                                                                this.open_text_edit_dialog(i, text.clone(), window, cx);
-                                                            }))
+                                                            .on_click(cx.listener(
+                                                                move |this, _event, window, cx| {
+                                                                    this.open_text_edit_dialog(
+                                                                        i,
+                                                                        text.clone(),
+                                                                        window,
+                                                                        cx,
+                                                                    );
+                                                                },
+                                                            ))
                                                             .child("编辑"),
                                                     )
                                                 })
                                                 .child(
                                                     Button::new(format!("delete-file-{}", i))
                                                         .ghost()
-                                                        .on_click(cx.listener(move |_this, _event, _window, _cx| {
-                                                            send_state_for_delete.update(_cx, |state, _| {
-                                                                state.remove(i);
-                                                            });
-                                                        }))
+                                                        .on_click(cx.listener(
+                                                            move |_this, _event, _window, _cx| {
+                                                                send_state_for_delete.update(
+                                                                    _cx,
+                                                                    |state, _| {
+                                                                        state.remove(i);
+                                                                    },
+                                                                );
+                                                            },
+                                                        ))
                                                         .child(
                                                             Icon::default()
                                                                 .path("icons/trash.svg")
@@ -400,27 +417,24 @@ impl gpui::Render for SelectedFilesPage {
             )
             .child(
                 div().w_full().px(px(15.)).py(px(15.)).child(
-                    h_flex()
-                        .justify_end()
-                        .items_center()
-                        .child(
-                            Button::new("add-more-files")
-                                .primary()
-                                .on_click(cx.listener(|this, _event, window, cx| {
-                                    this.open_add_dialog(window, cx);
-                                }))
-                                .child(
-                                    h_flex()
-                                        .items_center()
-                                        .gap(px(6.))
-                                        .child(
-                                            Icon::default()
-                                                .path("icons/plus.svg")
-                                                .with_size(Size::Small),
-                                        )
-                                        .child("添加"),
-                                ),
-                        ),
+                    h_flex().justify_end().items_center().child(
+                        Button::new("add-more-files")
+                            .primary()
+                            .on_click(cx.listener(|this, _event, window, cx| {
+                                this.open_add_dialog(window, cx);
+                            }))
+                            .child(
+                                h_flex()
+                                    .items_center()
+                                    .gap(px(6.))
+                                    .child(
+                                        Icon::default()
+                                            .path("icons/plus.svg")
+                                            .with_size(Size::Small),
+                                    )
+                                    .child("添加"),
+                            ),
+                    ),
                 ),
             )
     }

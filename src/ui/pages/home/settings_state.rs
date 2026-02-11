@@ -66,7 +66,7 @@ impl Default for SettingsPageState {
             network_filtered: false,
             discovery_timeout: 900,
             encryption: false,
-            multicast_group: "239.255.255.250".to_string(),
+            multicast_group: "224.0.0.167".to_string(),
         }
     }
 }

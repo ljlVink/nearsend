@@ -34,7 +34,11 @@ fn render_content_type_button(
 ) -> AnyElement {
     let icon_path = icon_path.into();
     let primary = cx.theme().primary;
-    let bg = if selected { primary } else { cx.theme().secondary };
+    let bg = if selected {
+        primary
+    } else {
+        cx.theme().secondary
+    };
     let fg = if selected {
         cx.theme().primary_foreground
     } else {
@@ -113,11 +117,13 @@ pub fn render_send_content(
     window: &mut Window,
     cx: &mut Context<HomePage>,
 ) -> AnyElement {
+    app.hydrate_nearby_devices_from_cache(cx);
+
     if !app.send_state.has_scanned_once
         && !app.send_state.scanning
         && app.send_state.nearby_devices.is_empty()
     {
-        app.start_discovery_scan(cx);
+        app.start_discovery_scan(false, cx);
     }
 
     let selected_files = app.send_state.selected_files.clone();
@@ -128,9 +134,7 @@ pub fn render_send_content(
     let animations = app.settings_state.animations;
     let home_entity = cx.entity();
     let select_row_scroll = window
-        .use_keyed_state("send-select-row-scroll", cx, |_, _| {
-            ScrollHandle::default()
-        })
+        .use_keyed_state("send-select-row-scroll", cx, |_, _| ScrollHandle::default())
         .read(cx)
         .clone();
 
@@ -158,7 +162,7 @@ pub fn render_send_content(
                             .child(
                                 div()
                                     .text_lg()
-                                    .font_bold()
+                                    .font_weight(gpui::FontWeight::BLACK)
                                     .text_color(cx.theme().foreground)
                                     .child("选择"),
                             ),
@@ -391,7 +395,7 @@ pub fn render_send_content(
                                     .child(
                                         div()
                                             .text_lg()
-                                            .font_bold()
+                                            .font_weight(gpui::FontWeight::BLACK)
                                             .text_color(cx.theme().foreground)
                                             .child("附近的设备"),
                                     )
@@ -410,7 +414,7 @@ pub fn render_send_content(
                                                                 "icons/refresh.svg",
                                                                 cx,
                                                                 |this, _window, cx| {
-                                                                    this.start_discovery_scan(cx);
+                                                                    this.start_discovery_scan(true, cx);
                                                                 },
                                                             ),
                                                         )

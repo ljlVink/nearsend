@@ -304,36 +304,40 @@ impl gpui::Render for HistoryPage {
                                                         })
                                                         .child("从历史记录中删除"),
                                                     )
-                                                    .when(entry_for_open.file_path.exists(), |this| {
-                                                        this.child(
-                                                            Button::new(format!(
-                                                                "history-entry-open-{}",
-                                                                entry_id_for_open
-                                                            ))
-                                                            .ghost()
-                                                            .w_full()
-                                                            .justify_start()
-                                                            .on_click({
-                                                                let page_for_open_action =
-                                                                    page_for_open_action.clone();
-                                                                move |_event, window, cx| {
-                                                                    page_for_open_action.update(
+                                                    .when(
+                                                        entry_for_open.file_path.exists(),
+                                                        |this| {
+                                                            this.child(
+                                                                Button::new(format!(
+                                                                    "history-entry-open-{}",
+                                                                    entry_id_for_open
+                                                                ))
+                                                                .ghost()
+                                                                .w_full()
+                                                                .justify_start()
+                                                                .on_click({
+                                                                    let page_for_open_action =
+                                                                        page_for_open_action
+                                                                            .clone();
+                                                                    move |_event, window, cx| {
+                                                                        page_for_open_action.update(
                                                                         cx,
                                                                         |this, _cx| {
                                                                             this.open_menu_entry =
                                                                                 None;
                                                                         },
                                                                     );
-                                                                    open_notice_dialog(
+                                                                        open_notice_dialog(
                                                                         "打开文件功能即将接入。",
                                                                         window,
                                                                         cx,
                                                                     );
-                                                                }
-                                                            })
-                                                            .child("打开"),
-                                                        )
-                                                    })
+                                                                    }
+                                                                })
+                                                                .child("打开"),
+                                                            )
+                                                        },
+                                                    )
                                             }),
                                     )
                             }))
@@ -347,15 +351,12 @@ impl gpui::Render for HistoryPage {
                             .justify_center()
                             .py(px(80.))
                             .child(
-                                v_flex()
-                                    .items_center()
-                                    .gap(spacing::MD)
-                                    .child(
-                                        div()
-                                            .text_xl()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child("无历史记录"),
-                                    ),
+                                v_flex().items_center().gap(spacing::MD).child(
+                                    div()
+                                        .text_xl()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child("无历史记录"),
+                                ),
                             )
                             .into_any_element()
                     }),
@@ -432,7 +433,11 @@ fn format_timestamp(timestamp: u64) -> String {
     }
 }
 
-fn open_entry_info_dialog(entry: &crate::state::history_state::HistoryEntry, window: &mut Window, cx: &mut gpui::App) {
+fn open_entry_info_dialog(
+    entry: &crate::state::history_state::HistoryEntry,
+    window: &mut Window,
+    cx: &mut gpui::App,
+) {
     let title = entry.file_name.clone();
     let file_path = entry.file_path.display().to_string();
     let file_size = format_file_size(entry.file_size);

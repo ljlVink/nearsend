@@ -211,6 +211,20 @@ pub fn render_receive_content(
                                     2 => QuickSaveMode::On,
                                     _ => QuickSaveMode::Off,
                                 };
+                                match this.receive_state.quick_save_mode {
+                                    QuickSaveMode::Off => {
+                                        this.settings_state.quick_save = false;
+                                        this.settings_state.quick_save_favorites = false;
+                                    }
+                                    QuickSaveMode::Favorites => {
+                                        this.settings_state.quick_save = false;
+                                        this.settings_state.quick_save_favorites = true;
+                                    }
+                                    QuickSaveMode::On => {
+                                        this.settings_state.quick_save = true;
+                                        this.settings_state.quick_save_favorites = false;
+                                    }
+                                }
                             }))
                             .children([
                                 Tab::new().flex_1().label("关"),

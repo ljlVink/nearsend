@@ -80,28 +80,14 @@ impl gpui::RenderOnce for DevicePlaceholder {
                             .flex_1()
                             .child(
                                 // Name placeholder bar
-                                div()
-                                    .w(px(100.))
-                                    .h(px(14.))
-                                    .bg(skeleton)
-                                    .rounded(px(4.)),
+                                div().w(px(100.)).h(px(14.)).bg(skeleton).rounded(px(4.)),
                             )
                             .child(
                                 h_flex()
                                     .gap(px(10.))
+                                    .child(div().w(px(52.)).h(px(20.)).bg(skeleton).rounded(px(6.)))
                                     .child(
-                                        div()
-                                            .w(px(52.))
-                                            .h(px(20.))
-                                            .bg(skeleton)
-                                            .rounded(px(6.)),
-                                    )
-                                    .child(
-                                        div()
-                                            .w(px(120.))
-                                            .h(px(20.))
-                                            .bg(skeleton)
-                                            .rounded(px(6.)),
+                                        div().w(px(120.)).h(px(20.)).bg(skeleton).rounded(px(6.)),
                                     ),
                             ),
                     ),

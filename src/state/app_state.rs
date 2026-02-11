@@ -15,10 +15,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(
-        server: Entity<ServerManager>,
-        tokio_handle: Handle,
-    ) -> Self {
+    pub fn new(server: Entity<ServerManager>, tokio_handle: Handle) -> Self {
         Self {
             server,
             selected_files: Vec::new(),

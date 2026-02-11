@@ -1,6 +1,6 @@
 use gpui::{hsla, px, size, App, AppContext, Application, Bounds, WindowBounds, WindowOptions};
-use gpui_component::Root;
 use gpui_component::theme::Theme;
+use gpui_component::Root;
 use gpui_component_assets::Assets as ComponentAssets;
 
 use log::LevelFilter;

@@ -13,16 +13,17 @@ pub use send_state::{SelectedFileInfo, SendContentType, SendMode, SendPageState}
 pub use settings_state::{ColorMode, SettingsPageState, ThemeMode};
 
 use crate::state::{
-    app_state::AppState, device_state::DeviceState, send_selection_state::SendSelectionState,
-    transfer_state::TransferState,
+    app_state::AppState, device_state::DeviceState, receive_inbox_state::ReceiveInboxState,
+    send_selection_state::SendSelectionState, transfer_state::TransferState,
 };
 use gpui::{div, prelude::*, px, AnyElement, Context, Entity, IntoElement, Window};
-use gpui_component::input::{Input, InputState};
 use gpui_component::button::{Button, ButtonCustomVariant, ButtonVariants as _};
+use gpui_component::input::{Input, InputState};
 use gpui_component::select::{Select, SelectEvent, SelectState};
 use gpui_component::{
     h_flex, v_flex, ActiveTheme as _, Icon, IndexPath, Sizable as _, StyledExt as _, WindowExt as _,
 };
+use gpui_router::RouterState;
 use localsend::http::state::ClientInfo;
 use localsend::model::discovery::DeviceType;
 use std::time::Duration;
@@ -41,6 +42,7 @@ pub struct HomePage {
     pub(super) device_state: Entity<DeviceState>,
     pub(super) transfer_state: Entity<TransferState>,
     pub(super) send_selection_state: Entity<SendSelectionState>,
+    pub(super) receive_inbox_state: Entity<ReceiveInboxState>,
     pub(super) current_tab: TabType,
     services_started: bool,
     pub(super) receive_state: ReceivePageState,
@@ -57,17 +59,34 @@ pub struct HomePage {
 }
 
 impl HomePage {
+    fn normalized_peer_token(info: &ClientInfo, ip: &str, port: u16) -> String {
+        if info.token.is_empty() {
+            format!("{}:{}", ip, port)
+        } else {
+            info.token.clone()
+        }
+    }
+
+    fn normalize_peer_info(mut info: ClientInfo, ip: &str, port: u16) -> ClientInfo {
+        if info.token.is_empty() {
+            info.token = format!("{}:{}", ip, port);
+        }
+        info
+    }
+
     pub fn new(
         app_state: Entity<AppState>,
         device_state: Entity<DeviceState>,
         transfer_state: Entity<TransferState>,
         send_selection_state: Entity<SendSelectionState>,
+        receive_inbox_state: Entity<ReceiveInboxState>,
     ) -> Self {
         Self {
             app_state,
             device_state,
             transfer_state,
             send_selection_state,
+            receive_inbox_state,
             current_tab: TabType::Receive,
             services_started: false,
             receive_state: ReceivePageState::default(),
@@ -90,6 +109,7 @@ enum AddressInputMode {
 
 impl gpui::Render for HomePage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.poll_incoming_events(window, cx);
         self.sync_selected_files_from_shared(cx);
         if !self.services_started {
             self.services_started = true;
@@ -126,6 +146,61 @@ impl gpui::Render for HomePage {
 }
 
 impl HomePage {
+    fn poll_incoming_events(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let events = crate::core::receive_events::drain_incoming_events();
+        if events.is_empty() {
+            return;
+        }
+
+        let mut should_open_receive_page = false;
+        let settings_quick_save = self.settings_state.quick_save;
+        let settings_quick_save_favorites = self.settings_state.quick_save_favorites;
+        let favorite_tokens = self.send_state.favorite_tokens.clone();
+
+        self.receive_inbox_state.update(cx, |state, _| {
+            for event in events {
+                match &event {
+                    crate::core::receive_events::IncomingTransferEvent::Prepared {
+                        sender_fingerprint,
+                        files,
+                        ..
+                    } => {
+                        let is_message_only = files.len() == 1
+                            && files
+                                .first()
+                                .map(|f| f.file_type.starts_with("text/"))
+                                .unwrap_or(false);
+                        let is_favorite = favorite_tokens.contains(sender_fingerprint);
+                        let quick_save = !is_message_only
+                            && (settings_quick_save
+                                || (settings_quick_save_favorites && is_favorite));
+                        if !quick_save {
+                            should_open_receive_page = true;
+                        }
+                    }
+                    crate::core::receive_events::IncomingTransferEvent::FileReceived { .. } => {
+                        if let Some(active) = state.active.as_ref() {
+                            let is_favorite = favorite_tokens.contains(&active.sender_fingerprint);
+                            let quick_save = !active.is_message_only
+                                && (settings_quick_save
+                                    || (settings_quick_save_favorites && is_favorite));
+                            if !quick_save {
+                                should_open_receive_page = true;
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                state.apply_event(event);
+            }
+        });
+
+        if should_open_receive_page {
+            RouterState::global_mut(cx).location.pathname = "/receive/incoming".into();
+            window.refresh();
+        }
+    }
+
     fn sync_selected_files_from_shared(&mut self, cx: &mut Context<Self>) {
         let items = self.send_selection_state.read(cx).items().to_vec();
         let total = self.send_selection_state.read(cx).total_size();
@@ -150,6 +225,8 @@ impl HomePage {
 
         let alias = self.receive_state.server_alias.clone();
         let token = uuid::Uuid::new_v4().to_string();
+        let port = self.receive_state.server_port;
+        let use_https = self.settings_state.encryption;
         let client_info = ClientInfo {
             alias: alias.clone(),
             version: "2.1".to_string(),
@@ -171,7 +248,8 @@ impl HomePage {
             if let Err(err) = crate::core::multicast::start_multicast_service(
                 client_info.alias,
                 client_info.token,
-                53317,
+                port,
+                use_https,
                 client_info.device_model,
                 client_info.device_type,
             )
@@ -204,8 +282,9 @@ impl HomePage {
         let server_entity = self.app_state.read(cx).server.clone();
         let tokio_handle = self.app_state.read(cx).tokio_handle.clone();
         let cert = self.app_state.read(cx).cert.clone();
+        let use_https = self.settings_state.encryption;
         match server_entity.update(cx, |server, _cx| {
-            server.start(client_info, false, cert, &tokio_handle)
+            server.start(client_info, use_https, cert, &tokio_handle)
         }) {
             Ok(()) => {
                 self.receive_state.server_running = true;
@@ -228,14 +307,58 @@ impl HomePage {
         self.settings_state.server_running = false;
     }
 
-    pub(super) fn start_discovery_scan(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn hydrate_nearby_devices_from_cache(&mut self, cx: &mut Context<Self>) {
+        let own = self
+            .app_state
+            .read(cx)
+            .client_info
+            .as_ref()
+            .map(|c| c.token.clone())
+            .unwrap_or_default();
+        let cached = crate::core::discovery::list_passive_devices(Some(&own));
+        if cached.is_empty() {
+            return;
+        }
+
+        let mut endpoint_map = self.send_state.nearby_endpoints.clone();
+        for d in &cached {
+            let key = Self::normalized_peer_token(&d.info, &d.ip, d.port);
+            endpoint_map.insert(
+                key,
+                send_state::DeviceEndpoint {
+                    ip: d.ip.clone(),
+                    port: d.port,
+                    https: d.https,
+                },
+            );
+        }
+        self.send_state.nearby_endpoints = endpoint_map;
+
+        let mut info_map = std::collections::HashMap::<String, ClientInfo>::new();
+        for info in self.send_state.nearby_devices.iter().cloned() {
+            info_map.insert(info.token.clone(), info);
+        }
+        for d in cached {
+            let normalized = Self::normalize_peer_info(d.info, &d.ip, d.port);
+            info_map.insert(normalized.token.clone(), normalized);
+        }
+        self.send_state.nearby_devices = info_map.into_values().collect();
+        self.send_state
+            .nearby_devices
+            .sort_by(|a, b| a.alias.cmp(&b.alias));
+    }
+
+    pub(super) fn start_discovery_scan(&mut self, force_refresh: bool, cx: &mut Context<Self>) {
         if self.send_state.scanning {
             return;
         }
         self.send_state.has_scanned_once = true;
         self.send_state.scanning = true;
-        self.send_state.nearby_devices.clear();
-        self.send_state.nearby_endpoints.clear();
+        if force_refresh {
+            self.send_state.nearby_devices.clear();
+            self.send_state.nearby_endpoints.clear();
+            crate::core::discovery::clear_passive_devices();
+        }
 
         let port = self.receive_state.server_port;
         let timeout_ms = self.settings_state.discovery_timeout.max(200) as u64;
@@ -245,10 +368,27 @@ impl HomePage {
             .client_info
             .as_ref()
             .map(|c| c.token.clone());
+        let announce_info = self.app_state.read(cx).client_info.clone();
+        let use_https = self.settings_state.encryption;
         let handle = self.app_state.read(cx).tokio_handle.clone();
         let join = handle.spawn(async move {
+            if let Some(info) = announce_info {
+                if let Err(err) = crate::core::multicast::send_multicast_announcement(
+                    info.alias,
+                    info.token,
+                    port,
+                    use_https,
+                    info.device_model,
+                    info.device_type,
+                )
+                .await
+                {
+                    log::debug!("send multicast announcement failed: {}", err);
+                }
+            }
             crate::core::discovery::scan_local_network(
                 port,
+                use_https,
                 Duration::from_millis(timeout_ms),
                 self_fingerprint,
             )
@@ -265,20 +405,43 @@ impl HomePage {
             };
 
             let _ = this.update(cx, |this, cx| {
-                this.send_state.nearby_devices = discovered.iter().map(|d| d.info.clone()).collect();
-                this.send_state.nearby_endpoints = discovered
-                    .iter()
-                    .map(|d| {
-                        (
-                            d.info.token.clone(),
-                            send_state::DeviceEndpoint {
-                                ip: d.ip.clone(),
-                                port: d.port,
-                                https: d.https,
-                            },
-                        )
-                    })
-                    .collect();
+                let mut endpoint_map = this.send_state.nearby_endpoints.clone();
+                for d in &discovered {
+                    let key = Self::normalized_peer_token(&d.info, &d.ip, d.port);
+                    endpoint_map.insert(
+                        key,
+                        send_state::DeviceEndpoint {
+                            ip: d.ip.clone(),
+                            port: d.port,
+                            https: d.https,
+                        },
+                    );
+                }
+                this.send_state.nearby_endpoints = endpoint_map;
+
+                let mut info_map = std::collections::HashMap::<String, ClientInfo>::new();
+                for info in this.send_state.nearby_devices.iter().cloned() {
+                    info_map.insert(info.token.clone(), info);
+                }
+                for d in &discovered {
+                    let normalized = Self::normalize_peer_info(d.info.clone(), &d.ip, d.port);
+                    info_map.insert(normalized.token.clone(), normalized);
+                }
+                this.send_state.nearby_devices = info_map.into_values().collect();
+                this.send_state
+                    .nearby_devices
+                    .sort_by(|a, b| a.alias.cmp(&b.alias));
+
+                for d in discovered.iter() {
+                    crate::core::discovery::register_passive_device(
+                        crate::core::discovery::DiscoveredDevice {
+                            info: d.info.clone(),
+                            ip: d.ip.clone(),
+                            port: d.port,
+                            https: d.https,
+                        },
+                    );
+                }
                 this.send_state.scanning = false;
                 cx.notify();
             });
@@ -313,9 +476,7 @@ impl HomePage {
                 .w(px(320.))
                 .child(div().w_full().text_sm().child(msg.clone()))
                 .alert()
-                .button_props(
-                    gpui_component::dialog::DialogButtonProps::default().ok_text("确定"),
-                )
+                .button_props(gpui_component::dialog::DialogButtonProps::default().ok_text("确定"))
         });
     }
 
@@ -328,9 +489,17 @@ impl HomePage {
         self.send_state.send_content_type = content_type;
         match content_type {
             SendContentType::Text => self.open_text_input_dialog(window, cx),
-            SendContentType::File => self.open_simple_notice_dialog("文件选择器即将接入。当前可先使用“文本”发送。", window, cx),
-            SendContentType::Folder => self.open_simple_notice_dialog("文件夹选择即将接入。", window, cx),
-            SendContentType::Media => self.open_simple_notice_dialog("剪贴板发送即将接入。", window, cx),
+            SendContentType::File => self.open_simple_notice_dialog(
+                "文件选择器即将接入。当前可先使用“文本”发送。",
+                window,
+                cx,
+            ),
+            SendContentType::Folder => {
+                self.open_simple_notice_dialog("文件夹选择即将接入。", window, cx)
+            }
+            SendContentType::Media => {
+                self.open_simple_notice_dialog("剪贴板发送即将接入。", window, cx)
+            }
         }
     }
 
@@ -470,9 +639,7 @@ impl HomePage {
                         ),
                 )
                 .alert()
-                .button_props(
-                    gpui_component::dialog::DialogButtonProps::default().ok_text("关闭"),
-                )
+                .button_props(gpui_component::dialog::DialogButtonProps::default().ok_text("关闭"))
         });
     }
 
@@ -781,11 +948,7 @@ impl HomePage {
                                 .w_full()
                                 .shadow_xs()
                                 .rounded_md()
-                                .child(
-                                    Input::new(&ip_input_state)
-                                        .appearance(true)
-                                        .large(),
-                                ),
+                                .child(Input::new(&ip_input_state).appearance(true).large()),
                         )
                         .child(
                             div()
@@ -932,217 +1095,276 @@ impl HomePage {
 
         // Spawn on the shared tokio runtime
         tokio_handle.spawn(async move {
-                // ===== Compatibility path for official LocalSend app (macOS / mobile): v2 endpoints + v2 DTO =====
-                #[derive(Clone, serde::Serialize)]
-                #[serde(rename_all = "lowercase")]
-                enum V2Protocol {
-                    Http,
-                    Https,
-                }
+            // ===== Compatibility path for official LocalSend app (macOS / mobile): v2 endpoints + v2 DTO =====
+            #[derive(Clone, serde::Serialize)]
+            #[serde(rename_all = "lowercase")]
+            enum V2Protocol {
+                Http,
+                Https,
+            }
 
-                #[derive(Clone, serde::Serialize)]
-                #[serde(rename_all = "lowercase")]
-                enum V2DeviceType {
-                    Mobile,
-                    Desktop,
-                    Web,
-                    Headless,
-                    Server,
-                }
+            #[derive(Clone, serde::Serialize)]
+            #[serde(rename_all = "lowercase")]
+            enum V2DeviceType {
+                Mobile,
+                Desktop,
+                Web,
+                Headless,
+                Server,
+            }
 
-                #[derive(Clone, serde::Serialize)]
-                #[serde(rename_all = "camelCase")]
-                struct V2InfoRegisterDto {
-                    alias: String,
-                    version: String,
-                    #[serde(skip_serializing_if = "Option::is_none")]
-                    device_model: Option<String>,
-                    #[serde(skip_serializing_if = "Option::is_none")]
-                    device_type: Option<V2DeviceType>,
-                    fingerprint: String,
-                    port: u16,
-                    protocol: V2Protocol,
-                    download: bool,
-                }
+            #[derive(Clone, serde::Serialize)]
+            #[serde(rename_all = "camelCase")]
+            struct V2InfoRegisterDto {
+                alias: String,
+                version: String,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                device_model: Option<String>,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                device_type: Option<V2DeviceType>,
+                fingerprint: String,
+                port: u16,
+                protocol: V2Protocol,
+                download: bool,
+            }
 
-                #[derive(serde::Serialize)]
-                #[serde(rename_all = "camelCase")]
-                struct V2FileDto {
-                    id: String,
-                    file_name: String,
-                    size: u64,
-                    file_type: String,
-                    #[serde(skip_serializing_if = "Option::is_none")]
-                    preview: Option<String>,
-                }
+            #[derive(serde::Serialize)]
+            #[serde(rename_all = "camelCase")]
+            struct V2FileDto {
+                id: String,
+                file_name: String,
+                size: u64,
+                file_type: String,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                preview: Option<String>,
+            }
 
-                #[derive(serde::Serialize)]
-                #[serde(rename_all = "camelCase")]
-                struct V2PrepareUploadRequestDto {
-                    info: V2InfoRegisterDto,
-                    files: std::collections::HashMap<String, V2FileDto>,
-                }
+            #[derive(serde::Serialize)]
+            #[serde(rename_all = "camelCase")]
+            struct V2PrepareUploadRequestDto {
+                info: V2InfoRegisterDto,
+                files: std::collections::HashMap<String, V2FileDto>,
+            }
 
-                #[derive(serde::Deserialize)]
-                #[serde(rename_all = "camelCase")]
-                struct V2PrepareUploadResponseDto {
-                    session_id: String,
-                    files: std::collections::HashMap<String, String>,
-                }
+            #[derive(serde::Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct V2PrepareUploadResponseDto {
+                session_id: String,
+                files: std::collections::HashMap<String, String>,
+            }
 
-                fn to_v2_device_type(
-                    device_type: &Option<localsend::model::discovery::DeviceType>,
-                ) -> Option<V2DeviceType> {
-                    match device_type {
-                        Some(localsend::model::discovery::DeviceType::Mobile) => Some(V2DeviceType::Mobile),
-                        Some(localsend::model::discovery::DeviceType::Desktop) => Some(V2DeviceType::Desktop),
-                        Some(localsend::model::discovery::DeviceType::Web) => Some(V2DeviceType::Web),
-                        Some(localsend::model::discovery::DeviceType::Headless) => Some(V2DeviceType::Headless),
-                        Some(localsend::model::discovery::DeviceType::Server) => Some(V2DeviceType::Server),
-                        None => None,
+            #[derive(serde::Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct V2RegisterResponseDto {
+                alias: String,
+                version: Option<String>,
+                #[serde(default)]
+                device_model: Option<String>,
+                #[serde(default)]
+                device_type: Option<String>,
+                #[serde(default)]
+                token: Option<String>,
+                #[serde(default)]
+                fingerprint: Option<String>,
+            }
+
+            fn to_v2_device_type(
+                device_type: &Option<localsend::model::discovery::DeviceType>,
+            ) -> Option<V2DeviceType> {
+                match device_type {
+                    Some(localsend::model::discovery::DeviceType::Mobile) => {
+                        Some(V2DeviceType::Mobile)
                     }
+                    Some(localsend::model::discovery::DeviceType::Desktop) => {
+                        Some(V2DeviceType::Desktop)
+                    }
+                    Some(localsend::model::discovery::DeviceType::Web) => Some(V2DeviceType::Web),
+                    Some(localsend::model::discovery::DeviceType::Headless) => {
+                        Some(V2DeviceType::Headless)
+                    }
+                    Some(localsend::model::discovery::DeviceType::Server) => {
+                        Some(V2DeviceType::Server)
+                    }
+                    None => None,
                 }
+            }
 
-                let files_for_v2 = files.clone();
-                let mut v2_file_map = std::collections::HashMap::new();
-                let mut v2_entry_map = std::collections::HashMap::new();
-
-                for entry in files_for_v2 {
-                    let file_id = uuid::Uuid::new_v4().to_string();
-                    let dto = match &entry {
-                        SendFileEntry::Text { content } => V2FileDto {
-                            id: file_id.clone(),
-                            file_name: "message.txt".to_string(),
-                            size: content.as_bytes().len() as u64,
-                            file_type: "text/plain".to_string(),
-                            preview: if is_single_text_message {
-                                Some(content.clone())
-                            } else {
-                                None
-                            },
-                        },
-                        SendFileEntry::File {
-                            name, size, file_type, ..
-                        } => V2FileDto {
-                            id: file_id.clone(),
-                            file_name: name.clone(),
-                            size: *size,
-                            file_type: file_type.clone(),
-                            preview: None,
-                        },
-                    };
-                    v2_file_map.insert(file_id.clone(), dto);
-                    v2_entry_map.insert(file_id, entry);
+            fn from_wire_device_type(
+                value: Option<&str>,
+            ) -> Option<localsend::model::discovery::DeviceType> {
+                match value {
+                    Some("mobile") | Some("MOBILE") => {
+                        Some(localsend::model::discovery::DeviceType::Mobile)
+                    }
+                    Some("desktop") | Some("DESKTOP") => {
+                        Some(localsend::model::discovery::DeviceType::Desktop)
+                    }
+                    Some("web") | Some("WEB") => Some(localsend::model::discovery::DeviceType::Web),
+                    Some("headless") | Some("HEADLESS") => {
+                        Some(localsend::model::discovery::DeviceType::Headless)
+                    }
+                    Some("server") | Some("SERVER") => {
+                        Some(localsend::model::discovery::DeviceType::Server)
+                    }
+                    _ => None,
                 }
+            }
 
-                let mut v2_last_err: Option<String> = None;
-                let mut v2_no_upload_success = false;
-                let v2_http_client = match reqwest::Client::builder()
-                    .use_rustls_tls()
-                    .danger_accept_invalid_certs(true)
-                    .build()
+            fn remember_peer(peer: crate::core::discovery::DiscoveredDevice) {
+                crate::core::discovery::register_passive_device(peer);
+            }
+
+            let files_for_v2 = files.clone();
+            let mut v2_file_map = std::collections::HashMap::new();
+            let mut v2_entry_map = std::collections::HashMap::new();
+
+            for entry in files_for_v2 {
+                let file_id = uuid::Uuid::new_v4().to_string();
+                let dto = match &entry {
+                    SendFileEntry::Text { content } => V2FileDto {
+                        id: file_id.clone(),
+                        file_name: "message.txt".to_string(),
+                        size: content.as_bytes().len() as u64,
+                        file_type: "text/plain".to_string(),
+                        preview: if is_single_text_message {
+                            Some(content.clone())
+                        } else {
+                            None
+                        },
+                    },
+                    SendFileEntry::File {
+                        name,
+                        size,
+                        file_type,
+                        ..
+                    } => V2FileDto {
+                        id: file_id.clone(),
+                        file_name: name.clone(),
+                        size: *size,
+                        file_type: file_type.clone(),
+                        preview: None,
+                    },
+                };
+                v2_file_map.insert(file_id.clone(), dto);
+                v2_entry_map.insert(file_id, entry);
+            }
+
+            let mut v2_last_err: Option<String> = None;
+            let mut v2_no_upload_success = false;
+            let mut remembered_peer: Option<crate::core::discovery::DiscoveredDevice> = None;
+            let v2_http_client = match reqwest::Client::builder()
+                .use_rustls_tls()
+                .danger_accept_invalid_certs(true)
+                .build()
+            {
+                Ok(client) => client,
+                Err(e) => {
+                    log::warn!("failed to create v2 compatibility client: {}", e);
+                    // fall through to legacy logic
+                    reqwest::Client::new()
+                }
+            };
+
+            let v2_sender_info = V2InfoRegisterDto {
+                alias: our_info.alias.clone(),
+                version: our_info.version.clone(),
+                device_model: our_info.device_model.clone(),
+                device_type: to_v2_device_type(&our_info.device_type),
+                // Official LocalSend v2 expects fingerprint field.
+                // Reuse token as a stable unique sender identifier.
+                fingerprint: our_info.token.clone(),
+                port: our_info.port,
+                protocol: V2Protocol::Http,
+                download: false,
+            };
+
+            let v2_payload = V2PrepareUploadRequestDto {
+                info: v2_sender_info.clone(),
+                files: v2_file_map,
+            };
+
+            let v2_protocols = [("http", V2Protocol::Http), ("https", V2Protocol::Https)];
+            let mut v2_selected_scheme: Option<&str> = None;
+            let mut v2_response: Option<V2PrepareUploadResponseDto> = None;
+
+            for (scheme, _scheme_enum) in v2_protocols {
+                let register_url =
+                    format!("{}://{}:{}/api/localsend/v2/register", scheme, ip, port);
+                match v2_http_client
+                    .post(&register_url)
+                    .json(&v2_sender_info)
+                    .send()
+                    .await
                 {
-                    Ok(client) => client,
-                    Err(e) => {
-                        log::warn!("failed to create v2 compatibility client: {}", e);
-                        // fall through to legacy logic
-                        reqwest::Client::new()
-                    }
-                };
-
-                let v2_sender_info = V2InfoRegisterDto {
-                    alias: our_info.alias.clone(),
-                    version: our_info.version.clone(),
-                    device_model: our_info.device_model.clone(),
-                    device_type: to_v2_device_type(&our_info.device_type),
-                    // Official LocalSend v2 expects fingerprint field.
-                    // Reuse token as a stable unique sender identifier.
-                    fingerprint: our_info.token.clone(),
-                    port: our_info.port,
-                    protocol: V2Protocol::Http,
-                    download: false,
-                };
-
-                let v2_payload = V2PrepareUploadRequestDto {
-                    info: v2_sender_info.clone(),
-                    files: v2_file_map,
-                };
-
-                let v2_protocols = [("http", V2Protocol::Http), ("https", V2Protocol::Https)];
-                let mut v2_selected_scheme: Option<&str> = None;
-                let mut v2_response: Option<V2PrepareUploadResponseDto> = None;
-
-                for (scheme, _scheme_enum) in v2_protocols {
-                    let register_url = format!("{}://{}:{}/api/localsend/v2/register", scheme, ip, port);
-                    match v2_http_client
-                        .post(&register_url)
-                        .json(&v2_sender_info)
-                        .send()
-                        .await
-                    {
-                        Ok(res) => {
-                            if !res.status().is_success() {
-                                log::warn!(
-                                    "v2 register failed via {} for {}:{} status={}",
-                                    scheme,
-                                    ip,
-                                    port,
-                                    res.status()
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            log::warn!("v2 register failed via {} for {}:{}: {}", scheme, ip, port, e);
-                        }
-                    }
-
-                    let prepare_url = format!("{}://{}:{}/api/localsend/v2/prepare-upload", scheme, ip, port);
-                    match v2_http_client
-                        .post(&prepare_url)
-                        .json(&v2_payload)
-                        .send()
-                        .await
-                    {
-                        Ok(res) => {
-                            if res.status() == reqwest::StatusCode::NO_CONTENT {
-                                // LocalSend message-only transfer: accepted without binary upload.
-                                v2_selected_scheme = Some(scheme);
-                                v2_no_upload_success = true;
-                                break;
-                            }
-                            if !res.status().is_success() {
-                                let msg = format!("status={}", res.status());
-                                log::warn!(
-                                    "v2 prepare-upload failed via {} for {}:{}: {}",
-                                    scheme,
-                                    ip,
-                                    port,
-                                    msg
-                                );
-                                v2_last_err = Some(msg);
-                                continue;
-                            }
-                            match res.json::<V2PrepareUploadResponseDto>().await {
-                                Ok(parsed) => {
-                                    v2_selected_scheme = Some(scheme);
-                                    v2_response = Some(parsed);
-                                    break;
+                    Ok(res) => {
+                        if !res.status().is_success() {
+                            log::warn!(
+                                "v2 register failed via {} for {}:{} status={}",
+                                scheme,
+                                ip,
+                                port,
+                                res.status()
+                            );
+                        } else {
+                            match res.json::<V2RegisterResponseDto>().await {
+                                Ok(body) => {
+                                    remembered_peer =
+                                        Some(crate::core::discovery::DiscoveredDevice {
+                                            info: ClientInfo {
+                                                alias: body.alias,
+                                                version: body
+                                                    .version
+                                                    .unwrap_or_else(|| "1.0".to_string()),
+                                                device_model: body.device_model,
+                                                device_type: from_wire_device_type(
+                                                    body.device_type.as_deref(),
+                                                ),
+                                                token: body
+                                                    .fingerprint
+                                                    .or(body.token)
+                                                    .unwrap_or_default(),
+                                            },
+                                            ip: ip.clone(),
+                                            port,
+                                            https: scheme == "https",
+                                        });
                                 }
                                 Err(e) => {
-                                    let msg = format!("decode prepare-upload response failed: {}", e);
-                                    log::warn!(
-                                        "v2 prepare-upload decode failed via {} for {}:{}: {}",
-                                        scheme,
-                                        ip,
-                                        port,
-                                        msg
-                                    );
-                                    v2_last_err = Some(msg);
+                                    log::debug!("decode v2 register response failed: {}", e);
                                 }
                             }
                         }
-                        Err(e) => {
-                            let msg = e.to_string();
+                    }
+                    Err(e) => {
+                        log::warn!(
+                            "v2 register failed via {} for {}:{}: {}",
+                            scheme,
+                            ip,
+                            port,
+                            e
+                        );
+                    }
+                }
+
+                let prepare_url = format!(
+                    "{}://{}:{}/api/localsend/v2/prepare-upload",
+                    scheme, ip, port
+                );
+                match v2_http_client
+                    .post(&prepare_url)
+                    .json(&v2_payload)
+                    .send()
+                    .await
+                {
+                    Ok(res) => {
+                        if res.status() == reqwest::StatusCode::NO_CONTENT {
+                            // LocalSend message-only transfer: accepted without binary upload.
+                            v2_selected_scheme = Some(scheme);
+                            v2_no_upload_success = true;
+                            break;
+                        }
+                        if !res.status().is_success() {
+                            let msg = format!("status={}", res.status());
                             log::warn!(
                                 "v2 prepare-upload failed via {} for {}:{}: {}",
                                 scheme,
@@ -1151,272 +1373,327 @@ impl HomePage {
                                 msg
                             );
                             v2_last_err = Some(msg);
+                            continue;
                         }
-                    }
-                }
-                if v2_no_upload_success {
-                    log::info!("v2 message transfer complete (no upload required)");
-                    return;
-                }
-
-                if let (Some(scheme), Some(v2_response)) = (v2_selected_scheme, v2_response) {
-                    log::info!(
-                        "v2 prepare-upload succeeded for {}:{} over {}, session={}",
-                        ip,
-                        port,
-                        scheme,
-                        v2_response.session_id
-                    );
-
-                    if v2_response.files.is_empty() {
-                        log::info!(
-                            "v2 transfer complete with empty file selection, session_id={}",
-                            v2_response.session_id
-                        );
-                        return;
-                    }
-                    for (file_id, token) in &v2_response.files {
-                        if let Some(entry) = v2_entry_map.remove(file_id) {
-                            let (body, content_type) = match entry {
-                                SendFileEntry::Text { content } => {
-                                    (content.into_bytes(), "text/plain".to_string())
-                                }
-                                SendFileEntry::File { path, file_type, .. } => {
-                                    match tokio::fs::read(&path).await {
-                                        Ok(data) => (data, file_type),
-                                        Err(e) => {
-                                            log::error!("Failed to read file {:?}: {}", path, e);
-                                            continue;
-                                        }
-                                    }
-                                }
-                            };
-
-                            let upload_url = format!("{}://{}:{}/api/localsend/v2/upload", scheme, ip, port);
-                            let upload_result = v2_http_client
-                                .post(&upload_url)
-                                .query(&[
-                                    ("sessionId", v2_response.session_id.as_str()),
-                                    ("fileId", file_id.as_str()),
-                                    ("token", token.as_str()),
-                                ])
-                                .header(reqwest::header::CONTENT_TYPE, content_type)
-                                .header(reqwest::header::CONTENT_LENGTH, body.len().to_string())
-                                .body(body)
-                                .send()
-                                .await;
-
-                            match upload_result {
-                                Ok(res) if res.status().is_success() => {
-                                    log::info!("v2 upload succeeded for file_id={}", file_id);
-                                }
-                                Ok(res) => {
-                                    log::error!(
-                                        "v2 upload failed for file_id={} status={}",
-                                        file_id,
-                                        res.status()
-                                    );
-                                }
-                                Err(e) => {
-                                    log::error!("v2 upload failed for file_id={}: {}", file_id, e);
-                                }
+                        match res.json::<V2PrepareUploadResponseDto>().await {
+                            Ok(parsed) => {
+                                v2_selected_scheme = Some(scheme);
+                                v2_response = Some(parsed);
+                                break;
+                            }
+                            Err(e) => {
+                                let msg = format!("decode prepare-upload response failed: {}", e);
+                                log::warn!(
+                                    "v2 prepare-upload decode failed via {} for {}:{}: {}",
+                                    scheme,
+                                    ip,
+                                    port,
+                                    msg
+                                );
+                                v2_last_err = Some(msg);
                             }
                         }
                     }
-
-                    log::info!(
-                        "v2 transfer complete, session_id={}",
-                        v2_response.session_id
-                    );
-                    return;
-                } else {
-                    log::warn!(
-                        "v2 send path failed for {}:{}; fallback to legacy core client. last_error={}",
-                        ip,
-                        port,
-                        v2_last_err.unwrap_or_else(|| "unknown".to_string())
-                    );
-                }
-
-                // ===== Legacy fallback path: localsend/core client =====
-                // Create a fresh LsHttpClient for this transfer
-                let cert = match cert {
-                    Some(c) => c,
-                    None => {
-                        log::error!("No TLS cert available, cannot create transfer client");
-                        return;
-                    }
-                };
-                let client =
-                    match localsend::http::client::LsHttpClient::try_new(
-                        &cert.private_key_pem,
-                        &cert.cert_pem,
-                    ) {
-                        Ok(c) => c,
-                        Err(e) => {
-                            log::error!("Failed to create transfer client: {}", e);
-                            return;
-                        }
-                    };
-
-                // Build FileDto map
-                let mut file_map = std::collections::HashMap::new();
-                let mut entry_map = std::collections::HashMap::new();
-                for entry in files {
-                    let file_id = uuid::Uuid::new_v4().to_string();
-                    let dto = match &entry {
-                        SendFileEntry::Text { content } => localsend::model::transfer::FileDto {
-                            id: file_id.clone(),
-                            file_name: "message.txt".to_string(),
-                            size: content.as_bytes().len() as u64,
-                            file_type: "text/plain".to_string(),
-                            sha256: None,
-                            preview: if is_single_text_message {
-                                Some(content.clone())
-                            } else {
-                                None
-                            },
-                            metadata: None,
-                        },
-                        SendFileEntry::File {
-                            name, size, file_type, ..
-                        } => localsend::model::transfer::FileDto {
-                            id: file_id.clone(),
-                            file_name: name.clone(),
-                            size: *size,
-                            file_type: file_type.clone(),
-                            sha256: None,
-                            preview: None,
-                            metadata: None,
-                        },
-                    };
-                    file_map.insert(file_id.clone(), dto);
-                    entry_map.insert(file_id, entry);
-                }
-
-                let payload = localsend::http::dto::PrepareUploadRequestDto {
-                    info: our_info,
-                    files: file_map,
-                };
-
-                // Target client protocol can be HTTP or HTTPS.
-                // Try HTTP first for backward compatibility, then HTTPS fallback.
-                let protocols = [ProtocolType::Http, ProtocolType::Https];
-                let mut selected_protocol: Option<ProtocolType> = None;
-                let mut response: Option<localsend::http::dto::PrepareUploadResponseDto> = None;
-                let mut last_err: Option<String> = None;
-
-                for protocol in protocols {
-                    log::info!(
-                        "Trying protocol={} for {}:{}",
-                        protocol.as_str(),
-                        ip,
-                        port
-                    );
-
-                    let public_key = match client.register(&protocol, &ip, port, payload.info.clone()).await {
-                        Ok(register_result) => register_result.public_key,
-                        Err(e) => {
-                            // Some peers may reject/ignore register variants. Keep compatibility by still trying prepare-upload.
-                            log::warn!(
-                                "register failed via {} for {}:{}: {}",
-                                protocol.as_str(),
-                                ip,
-                                port,
-                                e
-                            );
-                            None
-                        }
-                    };
-
-                    match client
-                        .prepare_upload(&protocol, &ip, port, public_key, payload.clone())
-                        .await
-                    {
-                        Ok(r) => {
-                            selected_protocol = Some(protocol);
-                            response = Some(r);
-                            break;
-                        }
-                        Err(e) => {
-                            let msg = e.to_string();
-                            log::warn!(
-                                "prepare-upload failed via {} for {}:{}: {}",
-                                protocol.as_str(),
-                                ip,
-                                port,
-                                msg
-                            );
-                            last_err = Some(msg);
-                        }
-                    }
-                }
-
-                let (protocol, response) = match (selected_protocol, response) {
-                    (Some(protocol), Some(response)) => (protocol, response),
-                    _ => {
-                        log::error!(
-                            "prepare-upload failed for {}:{} after trying HTTP+HTTPS. last_error={}",
+                    Err(e) => {
+                        let msg = e.to_string();
+                        log::warn!(
+                            "v2 prepare-upload failed via {} for {}:{}: {}",
+                            scheme,
                             ip,
                             port,
-                            last_err.unwrap_or_else(|| "unknown".to_string())
+                            msg
                         );
-                        return;
+                        v2_last_err = Some(msg);
                     }
-                };
+                }
+            }
+            if v2_no_upload_success {
+                if let Some(peer) = remembered_peer.clone() {
+                    remember_peer(peer);
+                }
+                log::info!("v2 message transfer complete (no upload required)");
+                return;
+            }
 
-                let session_id = response.session_id.clone();
+            if let (Some(scheme), Some(v2_response)) = (v2_selected_scheme, v2_response) {
                 log::info!(
-                    "Got session_id: {}, protocol: {}, accepted files: {}",
-                    session_id,
-                    protocol.as_str(),
-                    response.files.len()
+                    "v2 prepare-upload succeeded for {}:{} over {}, session={}",
+                    ip,
+                    port,
+                    scheme,
+                    v2_response.session_id
                 );
 
-                // Upload each accepted file
-                for (file_id, token) in &response.files {
-                    if let Some(entry) = entry_map.remove(file_id) {
-                        let (tx, rx) = tokio::sync::mpsc::channel::<Vec<u8>>(32);
-
-                        // Feed data into the channel
-                        tokio::task::spawn(async move {
-                            match entry {
-                                SendFileEntry::Text { content } => {
-                                    let _ = tx.send(content.into_bytes()).await;
-                                }
-                                SendFileEntry::File { path, .. } => {
-                                    match tokio::fs::read(&path).await {
-                                        Ok(data) => {
-                                            let _ = tx.send(data).await;
-                                        }
-                                        Err(e) => {
-                                            log::error!("Failed to read file {:?}: {}", path, e)
-                                        }
-                                    }
-                                }
+                if v2_response.files.is_empty() {
+                    log::info!(
+                        "v2 transfer complete with empty file selection, session_id={}",
+                        v2_response.session_id
+                    );
+                    return;
+                }
+                for (file_id, token) in &v2_response.files {
+                    if let Some(entry) = v2_entry_map.remove(file_id) {
+                        let (body, content_type) = match entry {
+                            SendFileEntry::Text { content } => {
+                                (content.into_bytes(), "text/plain".to_string())
                             }
-                        });
+                            SendFileEntry::File {
+                                path, file_type, ..
+                            } => match tokio::fs::read(&path).await {
+                                Ok(data) => (data, file_type),
+                                Err(e) => {
+                                    log::error!("Failed to read file {:?}: {}", path, e);
+                                    continue;
+                                }
+                            },
+                        };
 
-                        log::info!("Uploading file_id={}", file_id);
-                        if let Err(e) = client
-                            .upload(
-                                &protocol,
-                                &ip,
-                                port,
-                                session_id.clone(),
-                                file_id.clone(),
-                                token.clone(),
-                                rx,
-                            )
-                            .await
-                        {
-                            log::error!("Upload failed for file_id={}: {}", file_id, e);
+                        let upload_url =
+                            format!("{}://{}:{}/api/localsend/v2/upload", scheme, ip, port);
+                        let upload_result = v2_http_client
+                            .post(&upload_url)
+                            .query(&[
+                                ("sessionId", v2_response.session_id.as_str()),
+                                ("fileId", file_id.as_str()),
+                                ("token", token.as_str()),
+                            ])
+                            .header(reqwest::header::CONTENT_TYPE, content_type)
+                            .header(reqwest::header::CONTENT_LENGTH, body.len().to_string())
+                            .body(body)
+                            .send()
+                            .await;
+
+                        match upload_result {
+                            Ok(res) if res.status().is_success() => {
+                                log::info!("v2 upload succeeded for file_id={}", file_id);
+                            }
+                            Ok(res) => {
+                                log::error!(
+                                    "v2 upload failed for file_id={} status={}",
+                                    file_id,
+                                    res.status()
+                                );
+                            }
+                            Err(e) => {
+                                log::error!("v2 upload failed for file_id={}: {}", file_id, e);
+                            }
                         }
                     }
                 }
 
-                log::info!("Transfer complete, session_id={}", session_id);
-            });
+                log::info!(
+                    "v2 transfer complete, session_id={}",
+                    v2_response.session_id
+                );
+                if let Some(peer) = remembered_peer.clone() {
+                    remember_peer(peer);
+                }
+                return;
+            } else {
+                log::warn!(
+                    "v2 send path failed for {}:{}; fallback to legacy core client. last_error={}",
+                    ip,
+                    port,
+                    v2_last_err.unwrap_or_else(|| "unknown".to_string())
+                );
+            }
+
+            // ===== Legacy fallback path: localsend/core client =====
+            // Create a fresh LsHttpClient for this transfer
+            let cert = match cert {
+                Some(c) => c,
+                None => {
+                    log::error!("No TLS cert available, cannot create transfer client");
+                    return;
+                }
+            };
+            let client = match localsend::http::client::LsHttpClient::try_new(
+                &cert.private_key_pem,
+                &cert.cert_pem,
+            ) {
+                Ok(c) => c,
+                Err(e) => {
+                    log::error!("Failed to create transfer client: {}", e);
+                    return;
+                }
+            };
+
+            // Build FileDto map
+            let mut file_map = std::collections::HashMap::new();
+            let mut entry_map = std::collections::HashMap::new();
+            for entry in files {
+                let file_id = uuid::Uuid::new_v4().to_string();
+                let dto = match &entry {
+                    SendFileEntry::Text { content } => localsend::model::transfer::FileDto {
+                        id: file_id.clone(),
+                        file_name: "message.txt".to_string(),
+                        size: content.as_bytes().len() as u64,
+                        file_type: "text/plain".to_string(),
+                        sha256: None,
+                        preview: if is_single_text_message {
+                            Some(content.clone())
+                        } else {
+                            None
+                        },
+                        metadata: None,
+                    },
+                    SendFileEntry::File {
+                        name,
+                        size,
+                        file_type,
+                        ..
+                    } => localsend::model::transfer::FileDto {
+                        id: file_id.clone(),
+                        file_name: name.clone(),
+                        size: *size,
+                        file_type: file_type.clone(),
+                        sha256: None,
+                        preview: None,
+                        metadata: None,
+                    },
+                };
+                file_map.insert(file_id.clone(), dto);
+                entry_map.insert(file_id, entry);
+            }
+
+            let payload = localsend::http::dto::PrepareUploadRequestDto {
+                info: our_info,
+                files: file_map,
+            };
+
+            // Target client protocol can be HTTP or HTTPS.
+            // Try HTTP first for backward compatibility, then HTTPS fallback.
+            let protocols = [ProtocolType::Http, ProtocolType::Https];
+            let mut selected_protocol: Option<ProtocolType> = None;
+            let mut response: Option<localsend::http::dto::PrepareUploadResponseDto> = None;
+            let mut last_err: Option<String> = None;
+
+            for protocol in protocols {
+                log::info!("Trying protocol={} for {}:{}", protocol.as_str(), ip, port);
+
+                let public_key = match client
+                    .register(&protocol, &ip, port, payload.info.clone())
+                    .await
+                {
+                    Ok(register_result) => {
+                        remembered_peer = Some(crate::core::discovery::DiscoveredDevice {
+                            info: ClientInfo {
+                                alias: register_result.body.alias,
+                                version: register_result.body.version,
+                                device_model: register_result.body.device_model,
+                                device_type: register_result.body.device_type,
+                                token: register_result.body.token,
+                            },
+                            ip: ip.clone(),
+                            port,
+                            https: matches!(protocol, ProtocolType::Https),
+                        });
+                        register_result.public_key
+                    }
+                    Err(e) => {
+                        // Some peers may reject/ignore register variants. Keep compatibility by still trying prepare-upload.
+                        log::warn!(
+                            "register failed via {} for {}:{}: {}",
+                            protocol.as_str(),
+                            ip,
+                            port,
+                            e
+                        );
+                        None
+                    }
+                };
+
+                match client
+                    .prepare_upload(&protocol, &ip, port, public_key, payload.clone())
+                    .await
+                {
+                    Ok(r) => {
+                        selected_protocol = Some(protocol);
+                        response = Some(r);
+                        break;
+                    }
+                    Err(e) => {
+                        let msg = e.to_string();
+                        log::warn!(
+                            "prepare-upload failed via {} for {}:{}: {}",
+                            protocol.as_str(),
+                            ip,
+                            port,
+                            msg
+                        );
+                        last_err = Some(msg);
+                    }
+                }
+            }
+
+            let (protocol, response) = match (selected_protocol, response) {
+                (Some(protocol), Some(response)) => (protocol, response),
+                _ => {
+                    log::error!(
+                        "prepare-upload failed for {}:{} after trying HTTP+HTTPS. last_error={}",
+                        ip,
+                        port,
+                        last_err.unwrap_or_else(|| "unknown".to_string())
+                    );
+                    return;
+                }
+            };
+
+            let session_id = response.session_id.clone();
+            log::info!(
+                "Got session_id: {}, protocol: {}, accepted files: {}",
+                session_id,
+                protocol.as_str(),
+                response.files.len()
+            );
+
+            // Upload each accepted file
+            for (file_id, token) in &response.files {
+                if let Some(entry) = entry_map.remove(file_id) {
+                    let (tx, rx) = tokio::sync::mpsc::channel::<Vec<u8>>(32);
+
+                    // Feed data into the channel
+                    tokio::task::spawn(async move {
+                        match entry {
+                            SendFileEntry::Text { content } => {
+                                let _ = tx.send(content.into_bytes()).await;
+                            }
+                            SendFileEntry::File { path, .. } => {
+                                match tokio::fs::read(&path).await {
+                                    Ok(data) => {
+                                        let _ = tx.send(data).await;
+                                    }
+                                    Err(e) => {
+                                        log::error!("Failed to read file {:?}: {}", path, e)
+                                    }
+                                }
+                            }
+                        }
+                    });
+
+                    log::info!("Uploading file_id={}", file_id);
+                    if let Err(e) = client
+                        .upload(
+                            &protocol,
+                            &ip,
+                            port,
+                            session_id.clone(),
+                            file_id.clone(),
+                            token.clone(),
+                            rx,
+                        )
+                        .await
+                    {
+                        log::error!("Upload failed for file_id={}: {}", file_id, e);
+                    }
+                }
+            }
+
+            log::info!("Transfer complete, session_id={}", session_id);
+            if let Some(peer) = remembered_peer {
+                remember_peer(peer);
+            }
+        });
     }
 
     fn render_bottom_nav(&mut self, cx: &mut Context<Self>) -> AnyElement {
@@ -1485,13 +1762,24 @@ impl HomePage {
 }
 
 fn detect_primary_ipv4() -> Option<String> {
-    let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
-    socket.connect("8.8.8.8:80").ok()?;
-    let local = socket.local_addr().ok()?;
-    match local.ip() {
-        std::net::IpAddr::V4(ip) => Some(ip.to_string()),
-        _ => None,
+    let probes = [("224.0.0.167", 53317), ("1.1.1.1", 80), ("8.8.8.8", 80)];
+    for (host, port) in probes {
+        let socket = match std::net::UdpSocket::bind("0.0.0.0:0") {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        if socket.connect((host, port)).is_err() {
+            continue;
+        }
+        let local = match socket.local_addr() {
+            Ok(addr) => addr,
+            Err(_) => continue,
+        };
+        if let std::net::IpAddr::V4(ip) = local.ip() {
+            return Some(ip.to_string());
+        }
     }
+    None
 }
 
 fn ipv4_prefix(ip: &str) -> Option<String> {
