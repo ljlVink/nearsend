@@ -5,7 +5,6 @@ use crate::ui::components::{logo::Logo, switch::Switch};
 use crate::ui::theme::spacing;
 use gpui::{div, prelude::*, px, AnyElement, Context, Window};
 use gpui_component::scroll::ScrollableElement as _;
-use gpui_component::select::Select;
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _, Size, StyledExt as _,
@@ -111,11 +110,13 @@ fn render_button_entry(
         .into_any_element()
 }
 
-/// Renders a select dropdown entry (label + Select component).
-fn render_select_entry(
+/// Renders a button entry whose click handler needs `window` and `cx`.
+fn render_clickable_entry(
     label: &str,
-    select: impl gpui::IntoElement,
+    button_text: &str,
+    id: &str,
     cx: &mut Context<HomePage>,
+    on_click: impl Fn(&mut HomePage, &mut Window, &mut Context<HomePage>) + 'static,
 ) -> AnyElement {
     div()
         .pb(px(15.))
@@ -130,7 +131,18 @@ fn render_select_entry(
                         .child(label.to_string()),
                 )
                 .child(div().w(px(10.)))
-                .child(div().w(px(150.)).child(select)),
+                .child(
+                    div().w(px(150.)).child(
+                        Button::new(id.to_string())
+                            .with_variant(gpui_component::button::ButtonVariant::Secondary)
+                            .outline()
+                            .w_full()
+                            .on_click(cx.listener(move |this, _ev, window, cx| {
+                                on_click(this, window, cx);
+                            }))
+                            .child(button_text.to_string()),
+                    ),
+                ),
         )
         .into_any_element()
 }
@@ -145,113 +157,19 @@ pub fn render_settings_content(
     cx: &mut Context<HomePage>,
 ) -> AnyElement {
     let advanced = app.settings_state.advanced;
-    let language = app.settings_state.language.clone();
     let server_running = app.settings_state.server_running;
+    let server_paused = app.settings_state.server_paused;
     let server_alias = app.settings_state.server_alias.clone();
     let server_port = app.settings_state.server_port;
-    let destination = app.settings_state.destination.clone();
     let network_filtered = app.settings_state.network_filtered;
 
-    // -- General section children (built separately to avoid multiple &mut cx borrows) --
-    let g1 = if let Some(ref state) = app.theme_select {
-        render_select_entry("主题", Select::new(state).w(px(160.)), cx)
-    } else {
-        render_button_entry("主题", "系统", "theme-btn", cx, |_this| {})
-    };
-    let g2 = if let Some(ref state) = app.color_select {
-        render_select_entry("颜色", Select::new(state).w(px(160.)), cx)
-    } else {
-        render_button_entry("颜色", "系统", "color-btn", cx, |_this| {})
-    };
-    let g3 = if let Some(ref state) = app.language_select {
-        render_select_entry("语言", Select::new(state).w(px(160.)), cx)
-    } else {
-        render_button_entry("语言", &language, "language-btn", cx, |_this| {})
-    };
-    let animations = app.settings_state.animations;
-    let g4 = render_boolean_entry("动画效果", animations, "toggle-animations", cx, |this| {
-        this.settings_state.animations = !this.settings_state.animations;
-    });
-    let general = render_settings_section("常规", cx, vec![g1, g2, g3, g4]);
+    // "常规" 和 "接收" 能力暂未支持，先在设置页隐藏。
 
-    // -- Receive section children --
-    let quick_save = app.settings_state.quick_save;
-    let quick_save_favorites = app.settings_state.quick_save_favorites;
-    let require_pin = app.settings_state.require_pin;
-    let save_to_gallery = app.settings_state.save_to_gallery;
-    let auto_finish = app.settings_state.auto_finish;
-    let save_to_history = app.settings_state.save_to_history;
-    let dest_label = destination
-        .clone()
-        .unwrap_or_else(|| "Downloads".to_string());
-
-    let r1 = render_boolean_entry("快速保存", quick_save, "toggle-quick-save", cx, |this| {
-        this.settings_state.quick_save = !this.settings_state.quick_save;
-    });
-    let r2 = render_boolean_entry(
-        "收藏夹快速保存",
-        quick_save_favorites,
-        "toggle-quick-save-favorites",
-        cx,
-        |this| {
-            this.settings_state.quick_save_favorites = !this.settings_state.quick_save_favorites;
-        },
-    );
-    let r3 = render_boolean_entry("需要 PIN", require_pin, "toggle-require-pin", cx, |this| {
-        this.settings_state.require_pin = !this.settings_state.require_pin;
-    });
-    let r4 = render_button_entry("保存位置", &dest_label, "destination", cx, |this| {
-        this.settings_state.destination = Some("Downloads".to_string());
-    });
-    let r5 = render_boolean_entry(
-        "保存到相册",
-        save_to_gallery,
-        "toggle-save-to-gallery",
-        cx,
-        |this| {
-            this.settings_state.save_to_gallery = !this.settings_state.save_to_gallery;
-        },
-    );
-    let r6 = render_boolean_entry(
-        "自动完成",
-        auto_finish,
-        "toggle-auto-finish",
-        cx,
-        |this| {
-            this.settings_state.auto_finish = !this.settings_state.auto_finish;
-        },
-    );
-    let r7 = render_boolean_entry(
-        "保存到历史",
-        save_to_history,
-        "toggle-save-to-history",
-        cx,
-        |this| {
-            this.settings_state.save_to_history = !this.settings_state.save_to_history;
-        },
-    );
-    let receive = render_settings_section("接收", cx, vec![r1, r2, r3, r4, r5, r6, r7]);
-
-    // -- Send section (advanced only) --
-    let send = if advanced {
-        let share_via_link = app.settings_state.share_via_link_auto_accept;
-        let s1 = render_boolean_entry(
-            "链接分享自动接受",
-            share_via_link,
-            "toggle-share-via-link",
-            cx,
-            |this| {
-                this.settings_state.share_via_link_auto_accept =
-                    !this.settings_state.share_via_link_auto_accept;
-            },
-        );
-        Some(render_settings_section("发送", cx, vec![s1]))
-    } else {
-        None
-    };
+    // "发送" 能力暂未支持，先在设置页隐藏。
 
     // -- Network section --
     let server_label_text = format!("服务器{}", if server_running { "" } else { " (离线)" });
+    let can_pause = server_running && !server_paused;
     let server_controls = div()
         .pb(px(15.))
         .child(
@@ -272,28 +190,59 @@ pub fn render_settings_content(
                                 .justify_center()
                                 .gap(px(4.))
                                 .child(
-                                    Button::new("server-start")
-                                        .ghost()
+                                    div()
+                                        .id("server-start")
+                                        .cursor_pointer()
+                                        .px(px(8.))
+                                        .py(px(6.))
+                                        .rounded_md()
                                         .on_click(cx.listener(|this, _ev, _win, cx| {
-                                            this.start_local_server(cx);
+                                            if this.settings_state.server_paused {
+                                                this.resume_local_server(cx);
+                                            } else if this.settings_state.server_running {
+                                                this.restart_local_server_with_current_config(cx);
+                                            } else {
+                                                this.start_local_server(cx);
+                                            }
                                         }))
-                                        .child(
-                                            Icon::default()
-                                                .path("icons/refresh.svg")
-                                                .with_size(Size::Small),
-                                        ),
+                                        .when(server_paused, |this| {
+                                            this.child(
+                                                div()
+                                                    .text_sm()
+                                                    .font_weight(gpui::FontWeight::BOLD)
+                                                    .text_color(cx.theme().foreground)
+                                                    .child("▶"),
+                                            )
+                                        })
+                                        .when(!server_paused, |this| {
+                                            this.child(
+                                                Icon::default()
+                                                    .path("icons/refresh.svg")
+                                                    .with_size(Size::Small)
+                                                    .text_color(cx.theme().foreground),
+                                            )
+                                        }),
                                 )
                                 .child(
-                                    Button::new("server-stop")
-                                        .ghost()
-                                        .on_click(cx.listener(|this, _ev, _win, cx| {
-                                            this.stop_local_server(cx);
-                                        }))
-                                        .child(
-                                            Icon::default()
-                                                .path("icons/stop.svg")
-                                                .with_size(Size::Small),
-                                        ),
+                                    div()
+                                        .id("server-stop")
+                                        .px(px(8.))
+                                        .py(px(6.))
+                                        .rounded_md()
+                                        .when(can_pause, |this| {
+                                            this.cursor_pointer().on_click(cx.listener(
+                                                |this, _ev, _win, cx| {
+                                                    this.pause_local_server(cx);
+                                                },
+                                            ))
+                                        })
+                                        .child(div().w(px(12.)).h(px(12.)).rounded_sm().bg(
+                                            if can_pause {
+                                                cx.theme().foreground
+                                            } else {
+                                                cx.theme().muted_foreground.opacity(0.35)
+                                            },
+                                        )),
                                 ),
                         ),
                     ),
@@ -301,20 +250,26 @@ pub fn render_settings_content(
         )
         .into_any_element();
 
-    let n1 = render_button_entry("别名", &server_alias, "alias-input", cx, |_this| {
-        log::info!("Alias input clicked");
-    });
-    let mut network_children: Vec<AnyElement> = vec![server_controls, n1];
+    let n1 = render_clickable_entry(
+        "别名",
+        &server_alias,
+        "alias-input",
+        cx,
+        |this, window, cx| {
+            this.open_server_alias_dialog(window, cx);
+        },
+    );
+    let n2 = render_clickable_entry(
+        "端口",
+        &server_port.to_string(),
+        "port-input",
+        cx,
+        |this, window, cx| {
+            this.open_server_port_dialog(window, cx);
+        },
+    );
+    let mut network_children: Vec<AnyElement> = vec![server_controls, n1, n2];
     if advanced {
-        let n2 = render_button_entry(
-            "端口",
-            &server_port.to_string(),
-            "port-input",
-            cx,
-            |_this| {
-                log::info!("Port input clicked");
-            },
-        );
         let encryption = app.settings_state.encryption;
         let n3 = render_boolean_entry("加密", encryption, "toggle-encryption", cx, |this| {
             this.settings_state.encryption = !this.settings_state.encryption;
@@ -327,7 +282,6 @@ pub fn render_settings_content(
         let n4 = render_button_entry("网络", net_label, "network", cx, |_this| {
             log::info!("Network clicked");
         });
-        network_children.push(n2);
         network_children.push(n3);
         network_children.push(n4);
     }
@@ -366,7 +320,34 @@ pub fn render_settings_content(
                         .on_click(cx.listener(|this, _ev, _win, _cx| {
                             this.settings_state.advanced = !this.settings_state.advanced;
                         }))
-                        .child(Switch::new(advanced)),
+                        .child(
+                            div()
+                                .w(px(18.))
+                                .h(px(18.))
+                                .rounded(px(4.))
+                                .border_1()
+                                .border_color(if advanced {
+                                    cx.theme().primary
+                                } else {
+                                    cx.theme().border
+                                })
+                                .bg(if advanced {
+                                    cx.theme().primary
+                                } else {
+                                    cx.theme().background
+                                })
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .when(advanced, |this| {
+                                    this.child(
+                                        Icon::default()
+                                            .path("icons/check.svg")
+                                            .with_size(Size::XSmall)
+                                            .text_color(cx.theme().primary_foreground),
+                                    )
+                                }),
+                        ),
                 ),
         )
         .into_any_element();
@@ -406,13 +387,7 @@ pub fn render_settings_content(
         .px(px(15.))
         .pt(px(15.))
         .pb(px(40.))
-        .gap(spacing::LG)
-        .child(general)
-        .child(receive);
-
-    if let Some(send) = send {
-        content = content.child(send);
-    }
+        .gap(spacing::LG);
 
     content = content
         .child(network)

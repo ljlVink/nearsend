@@ -471,38 +471,59 @@ pub fn render_send_content(
                                 .children(app.send_state.nearby_devices.iter().map(|device| {
                                     let home_entity = home_entity.clone();
                                     let home_for_favorite = home_entity.clone();
-                                    let home_for_select = home_entity.clone();
                                     let device_for_select = device.clone();
                                     let token = device.token.clone();
                                     let is_favorite = app.send_state.favorite_tokens.contains(&token);
+                                    let endpoint = app.send_state.nearby_endpoints.get(&token);
+                                    let protocol_badge = endpoint
+                                        .map(|endpoint| {
+                                            if endpoint.https {
+                                                "LAN • HTTPS".to_string()
+                                            } else {
+                                                "LAN • HTTP".to_string()
+                                            }
+                                        })
+                                        .unwrap_or_else(|| "WebRTC".to_string());
+                                    let ip_suffix_badge = endpoint.and_then(|endpoint| {
+                                        endpoint
+                                            .ip
+                                            .rsplit('.')
+                                            .find(|segment| !segment.is_empty())
+                                            .map(|segment| format!("#{}", segment))
+                                    });
                                     div()
                                         .id(format!("device-row-{}", token))
                                         .px(px(15.))
                                         .pb(px(10.))
-                                        .on_click(cx.listener(move |_this, _event, window, cx| {
+                                        .on_click(cx.listener(move |this, _event, window, cx| {
                                             let device = device_for_select.clone();
-                                            home_for_select.update(cx, |this, cx| {
-                                                if !this.ensure_has_selected_files(window, cx) {
-                                                    return;
-                                                }
-                                                this.send_state.target_device = Some(device);
-                                                if let Some(endpoint) = this
-                                                    .send_state
-                                                    .target_device
-                                                    .as_ref()
-                                                    .and_then(|d| this.send_state.nearby_endpoints.get(&d.token))
-                                                    .cloned()
-                                                {
-                                                    this.execute_send(endpoint.ip, endpoint.port, cx);
-                                                } else {
-                                                    this.send_state.target_ip = None;
-                                                    this.open_send_to_address_dialog(window, cx);
-                                                }
-                                            });
+                                            if !this.ensure_has_selected_files(window, cx) {
+                                                return;
+                                            }
+                                            this.send_state.target_device = Some(device);
+                                            if let Some(endpoint) = this
+                                                .send_state
+                                                .target_device
+                                                .as_ref()
+                                                .and_then(|d| this.send_state.nearby_endpoints.get(&d.token))
+                                                .cloned()
+                                            {
+                                                this.execute_send(endpoint.ip, endpoint.port, cx);
+                                            } else {
+                                                this.send_state.target_ip = None;
+                                                this.open_send_to_address_dialog(window, cx);
+                                            }
                                         }))
                                         .child(
-                                            DeviceCard::new(device.clone())
-                                                .is_favorite(is_favorite)
+                                            {
+                                                let mut card = DeviceCard::new(device.clone())
+                                                    .is_favorite(is_favorite)
+                                                    .protocol_badge(protocol_badge);
+                                                if let Some(tag) = ip_suffix_badge {
+                                                    card = card.ip_suffix_badge(tag);
+                                                }
+                                                card
+                                            }
                                                 .on_favorite_tap({
                                                     let token = token.clone();
                                                     move |_device, _window, cx| {

@@ -13,7 +13,6 @@ const CUSTOM_ICONS: &[&str] = &[
     "icons/logo.svg",
     "icons/info.svg",
     "icons/file.svg",
-    "icons/play.svg",
     "icons/book-open.svg",
     "icons/folder.svg",
     "icons/close.svg",
@@ -31,7 +30,6 @@ const CUSTOM_ICONS: &[&str] = &[
     "icons/globe.svg",
     "icons/server.svg",
     "icons/arrow-left.svg",
-    "icons/stop.svg",
     "icons/refresh.svg",
     "icons/image.svg",
     "icons/target.svg",
@@ -50,7 +48,6 @@ impl AssetSource for NearSendAssets {
             "icons/logo.svg" => Some(include_bytes!("../assets/icons/logo.svg").as_slice()),
             "icons/info.svg" => Some(include_bytes!("../assets/icons/info.svg").as_slice()),
             "icons/file.svg" => Some(include_bytes!("../assets/icons/file.svg").as_slice()),
-            "icons/play.svg" => Some(include_bytes!("../assets/icons/play.svg").as_slice()),
             "icons/book-open.svg" => {
                 Some(include_bytes!("../assets/icons/book-open.svg").as_slice())
             }
@@ -76,15 +73,12 @@ impl AssetSource for NearSendAssets {
             "icons/arrow-left.svg" => {
                 Some(include_bytes!("../assets/icons/arrow-left.svg").as_slice())
             }
-            "icons/stop.svg" => Some(include_bytes!("../assets/icons/stop.svg").as_slice()),
             "icons/refresh.svg" => Some(include_bytes!("../assets/icons/refresh.svg").as_slice()),
             "icons/image.svg" => Some(include_bytes!("../assets/icons/image.svg").as_slice()),
             "icons/target.svg" => Some(include_bytes!("../assets/icons/target.svg").as_slice()),
             "icons/more-horizontal.svg" => {
                 Some(include_bytes!("../assets/icons/more-horizontal.svg").as_slice())
             }
-            "img/logo-128.png" => Some(include_bytes!("../assets/img/logo-128.png").as_slice()),
-            "img/logo-256.png" => Some(include_bytes!("../assets/img/logo-256.png").as_slice()),
             _ => None,
         };
         if let Some(b) = bytes {

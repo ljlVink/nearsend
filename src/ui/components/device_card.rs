@@ -13,6 +13,8 @@ use localsend::model::discovery::DeviceType;
 pub struct DeviceCard {
     device: ClientInfo,
     is_favorite: bool,
+    protocol_badge: Option<String>,
+    ip_suffix_badge: Option<String>,
     name_override: Option<String>,
     info: Option<String>,
     progress: Option<f64>,
@@ -26,6 +28,8 @@ impl DeviceCard {
         Self {
             device,
             is_favorite: false,
+            protocol_badge: None,
+            ip_suffix_badge: None,
             name_override: None,
             info: None,
             progress: None,
@@ -36,6 +40,16 @@ impl DeviceCard {
 
     pub fn is_favorite(mut self, is_favorite: bool) -> Self {
         self.is_favorite = is_favorite;
+        self
+    }
+
+    pub fn protocol_badge(mut self, label: impl Into<String>) -> Self {
+        self.protocol_badge = Some(label.into());
+        self
+    }
+
+    pub fn ip_suffix_badge(mut self, label: impl Into<String>) -> Self {
+        self.ip_suffix_badge = Some(label.into());
         self
     }
 
@@ -88,6 +102,11 @@ impl gpui::RenderOnce for DeviceCard {
         let on_favorite_tap = self.on_favorite_tap.clone();
         let device_name = self.name_override.unwrap_or_else(|| device.alias.clone());
         let is_favorite = self.is_favorite;
+        let protocol_badge = self
+            .protocol_badge
+            .clone()
+            .unwrap_or_else(|| "LAN • HTTP".to_string());
+        let ip_suffix_badge = self.ip_suffix_badge.clone();
         let info = self.info.clone();
         let progress = self.progress;
         let icon_path = device_type_icon_path(&device.device_type);
@@ -102,18 +121,28 @@ impl gpui::RenderOnce for DeviceCard {
             ProgressBar::new(Some(progress_val)).into_any_element()
         } else {
             h_flex()
-                .gap(px(10.))
+                .gap(px(8.))
                 .flex_wrap()
                 .child(
-                    DeviceBadge::new("LAN")
-                        .background_color(cx.theme().muted.into())
-                        .foreground_color(cx.theme().foreground.into()),
+                    DeviceBadge::new(protocol_badge)
+                        .background_color(cx.theme().primary.opacity(0.30).into())
+                        .foreground_color(cx.theme().primary.into())
+                        .border_color(cx.theme().primary.opacity(0.60).into()),
                 )
+                .when_some(ip_suffix_badge, |this, tag| {
+                    this.child(
+                        DeviceBadge::new(tag)
+                            .background_color(cx.theme().foreground.opacity(0.12).into())
+                            .foreground_color(cx.theme().foreground.into())
+                            .border_color(cx.theme().foreground.opacity(0.30).into()),
+                    )
+                })
                 .when(device.device_model.is_some(), |this| {
                     this.child(
                         DeviceBadge::new(device.device_model.as_ref().unwrap().clone())
-                            .background_color(cx.theme().muted.into())
-                            .foreground_color(cx.theme().foreground.into()),
+                            .background_color(cx.theme().primary.opacity(0.18).into())
+                            .foreground_color(cx.theme().primary.into())
+                            .border_color(cx.theme().primary.opacity(0.45).into()),
                     )
                 })
                 .into_any_element()

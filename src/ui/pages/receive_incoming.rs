@@ -1,6 +1,9 @@
 use crate::state::receive_inbox_state::ReceiveInboxState;
-use gpui::{div, prelude::*, px, ClipboardItem, Context, Entity, Window};
-use gpui_component::{button::Button, h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _, Size};
+use gpui::{div, hsla, prelude::*, px, ClipboardItem, Context, Entity, Window};
+use gpui_component::{
+    button::{Button, ButtonCustomVariant, ButtonVariants as _},
+    h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _, Size,
+};
 use gpui_router::RouterState;
 
 pub struct ReceiveIncomingPage {
@@ -48,6 +51,11 @@ impl gpui::Render for ReceiveIncomingPage {
             "等待接收内容".to_string()
         };
         let show_cancelled = session.as_ref().map(|s| s.cancelled).unwrap_or(false);
+        let close_button_variant = ButtonCustomVariant::new(cx)
+            .color(cx.theme().danger.opacity(0.92))
+            .foreground(hsla(0.0, 0.0, 1.0, 1.0))
+            .hover(cx.theme().danger.opacity(0.84))
+            .active(cx.theme().danger.opacity(0.76));
 
         v_flex()
             .size_full()
@@ -181,13 +189,10 @@ impl gpui::Render for ReceiveIncomingPage {
                             .when_some(message_content.clone(), |this, content| {
                                 this.child(
                                     Button::new("receive-incoming-copy")
-                                        .outline()
+                                        .primary()
                                         .h(px(38.))
                                         .px(px(18.))
                                         .rounded_md()
-                                        .bg(cx.theme().background)
-                                        .border_color(cx.theme().border.opacity(0.9))
-                                        .shadow_sm()
                                         .mt(px(8.))
                                         .child("复制")
                                         .on_click(cx.listener(
@@ -214,13 +219,10 @@ impl gpui::Render for ReceiveIncomingPage {
             .child(
                 h_flex().w_full().justify_center().pb(px(26.)).child(
                     Button::new("receive-incoming-close")
-                        .outline()
+                        .custom(close_button_variant)
                         .h(px(42.))
                         .px(px(16.))
                         .rounded_md()
-                        .bg(cx.theme().background)
-                        .border_color(cx.theme().border.opacity(0.9))
-                        .shadow_sm()
                         .child(
                             h_flex()
                                 .items_center()
@@ -229,12 +231,12 @@ impl gpui::Render for ReceiveIncomingPage {
                                     Icon::default()
                                         .path("icons/x.svg")
                                         .with_size(Size::Small)
-                                        .text_color(cx.theme().foreground),
+                                        .text_color(hsla(0.0, 0.0, 1.0, 1.0)),
                                 )
                                 .child(
                                     div()
                                         .text_lg()
-                                        .text_color(cx.theme().foreground)
+                                        .text_color(hsla(0.0, 0.0, 1.0, 1.0))
                                         .child("关闭"),
                                 ),
                         )

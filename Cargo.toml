@@ -23,8 +23,10 @@ ohos-hilog-binding = { version = "*", features = ["log"] }
 log = { version = "*" }
 
 # LocalSend protocol implementation - use official core from localsend/localsend
-# localsend = { git = "https://github.com/localsend/localsend.git", features = ["http"] }
-localsend = { path = "../localsend/core", features = ["http"]}
+localsend = { git = "https://github.com/localsend/localsend.git", features = [
+    "http",
+], rev = "1a9b8280ff0a768caa1fab78647cc6b2aa849ef3" }
+# localsend = { path = "../localsend/core", features = ["http"]}
 
 # Network dependencies (still needed for some utilities)
 tokio = { version = "1", features = ["full"] }
@@ -33,7 +35,11 @@ serde_json = "1.0"
 anyhow = "1.0"
 uuid = { version = "1.0", features = ["v4"] }
 rcgen = "0.13"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = [
+    "rustls-tls",
+    "json",
+    "stream",
+] }
 futures-util = "0.3"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 hyper = { version = "1", features = ["server", "http1"] }

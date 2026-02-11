@@ -81,6 +81,12 @@ impl HomePage {
         send_selection_state: Entity<SendSelectionState>,
         receive_inbox_state: Entity<ReceiveInboxState>,
     ) -> Self {
+        let alias = generate_random_alias();
+        let mut receive_state = ReceivePageState::default();
+        receive_state.server_alias = alias.clone();
+        let mut settings_state = SettingsPageState::default();
+        settings_state.server_alias = alias;
+
         Self {
             app_state,
             device_state,
@@ -89,9 +95,9 @@ impl HomePage {
             receive_inbox_state,
             current_tab: TabType::Receive,
             services_started: false,
-            receive_state: ReceivePageState::default(),
+            receive_state,
             send_state: SendPageState::default(),
-            settings_state: SettingsPageState::default(),
+            settings_state,
             theme_select: None,
             color_select: None,
             language_select: None,
@@ -261,34 +267,32 @@ impl HomePage {
     }
 
     pub(super) fn start_local_server(&mut self, cx: &mut Context<Self>) {
-        let client_info = if let Some(info) = self.app_state.read(cx).client_info.clone() {
-            info
-        } else {
-            let token = uuid::Uuid::new_v4().to_string();
-            let info = ClientInfo {
-                alias: self.receive_state.server_alias.clone(),
+        self.sync_server_config_to_runtime(cx);
+        let client_info = self
+            .app_state
+            .read(cx)
+            .client_info
+            .clone()
+            .unwrap_or_else(|| ClientInfo {
+                alias: self.settings_state.server_alias.clone(),
                 version: "2.1".to_string(),
                 device_model: Some("OpenHarmony".to_string()),
                 device_type: Some(DeviceType::Mobile),
-                token,
-            };
-            let app_state_entity = self.app_state.clone();
-            app_state_entity.update(cx, |state, _cx| {
-                state.client_info = Some(info.clone());
+                token: uuid::Uuid::new_v4().to_string(),
             });
-            info
-        };
 
         let server_entity = self.app_state.read(cx).server.clone();
         let tokio_handle = self.app_state.read(cx).tokio_handle.clone();
         let cert = self.app_state.read(cx).cert.clone();
         let use_https = self.settings_state.encryption;
         match server_entity.update(cx, |server, _cx| {
+            server.set_port(self.settings_state.server_port);
             server.start(client_info, use_https, cert, &tokio_handle)
         }) {
             Ok(()) => {
                 self.receive_state.server_running = true;
                 self.settings_state.server_running = true;
+                self.settings_state.server_paused = false;
             }
             Err(e) => {
                 log::error!("Failed to start server: {}", e);
@@ -305,6 +309,43 @@ impl HomePage {
         });
         self.receive_state.server_running = false;
         self.settings_state.server_running = false;
+    }
+
+    pub(super) fn sync_server_config_to_runtime(&mut self, cx: &mut Context<Self>) {
+        self.receive_state.server_alias = self.settings_state.server_alias.clone();
+        self.receive_state.server_port = self.settings_state.server_port;
+
+        let alias = self.settings_state.server_alias.clone();
+        let app_state_entity = self.app_state.clone();
+        app_state_entity.update(cx, |state, _| {
+            if let Some(info) = state.client_info.as_mut() {
+                info.alias = alias.clone();
+            } else {
+                state.client_info = Some(ClientInfo {
+                    alias: alias.clone(),
+                    version: "2.1".to_string(),
+                    device_model: Some("OpenHarmony".to_string()),
+                    device_type: Some(DeviceType::Mobile),
+                    token: uuid::Uuid::new_v4().to_string(),
+                });
+            }
+        });
+    }
+
+    pub(super) fn restart_local_server_with_current_config(&mut self, cx: &mut Context<Self>) {
+        self.sync_server_config_to_runtime(cx);
+        self.stop_local_server(cx);
+        self.start_local_server(cx);
+    }
+
+    pub(super) fn pause_local_server(&mut self, cx: &mut Context<Self>) {
+        self.stop_local_server(cx);
+        self.settings_state.server_paused = true;
+    }
+
+    pub(super) fn resume_local_server(&mut self, cx: &mut Context<Self>) {
+        self.sync_server_config_to_runtime(cx);
+        self.start_local_server(cx);
     }
 
     pub(super) fn hydrate_nearby_devices_from_cache(&mut self, cx: &mut Context<Self>) {
@@ -787,6 +828,100 @@ impl HomePage {
                             });
                         });
                     }
+                    true
+                })
+        });
+    }
+
+    pub(super) fn open_server_alias_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let input_state = cx.new(|cx| InputState::new(window, cx).placeholder("输入设备别名"));
+        let current_alias = self.settings_state.server_alias.clone();
+        input_state.update(cx, |state, cx| {
+            state.set_value(current_alias, window, cx);
+        });
+        let home_entity = cx.entity();
+
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let input_for_ok = input_state.clone();
+            let home_for_ok = home_entity.clone();
+
+            dialog
+                .title("编辑别名")
+                .overlay(true)
+                .w(px(340.))
+                .child(
+                    div()
+                        .w_full()
+                        .child(Input::new(&input_state).appearance(true).large()),
+                )
+                .confirm()
+                .button_props(
+                    gpui_component::dialog::DialogButtonProps::default()
+                        .ok_text("保存")
+                        .cancel_text("取消"),
+                )
+                .on_ok(move |_event, window, cx| {
+                    let alias = input_for_ok.read(cx).value().trim().to_string();
+                    if alias.is_empty() {
+                        home_for_ok.update(cx, |this, cx| {
+                            this.open_simple_notice_dialog("别名不能为空", window, cx);
+                        });
+                        return false;
+                    }
+                    home_for_ok.update(cx, |this, cx| {
+                        this.settings_state.server_alias = alias.clone();
+                        this.sync_server_config_to_runtime(cx);
+                    });
+                    true
+                })
+        });
+    }
+
+    pub(super) fn open_server_port_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let input_state = cx.new(|cx| InputState::new(window, cx).placeholder("输入端口号"));
+        let current_port = self.settings_state.server_port.to_string();
+        input_state.update(cx, |state, cx| {
+            state.set_value(current_port, window, cx);
+        });
+        let home_entity = cx.entity();
+
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let input_for_ok = input_state.clone();
+            let home_for_ok = home_entity.clone();
+
+            dialog
+                .title("编辑端口")
+                .overlay(true)
+                .w(px(340.))
+                .child(
+                    div()
+                        .w_full()
+                        .child(Input::new(&input_state).appearance(true).large()),
+                )
+                .confirm()
+                .button_props(
+                    gpui_component::dialog::DialogButtonProps::default()
+                        .ok_text("保存")
+                        .cancel_text("取消"),
+                )
+                .on_ok(move |_event, window, cx| {
+                    let raw = input_for_ok.read(cx).value().trim().to_string();
+                    let Ok(port) = raw.parse::<u16>() else {
+                        home_for_ok.update(cx, |this, cx| {
+                            this.open_simple_notice_dialog("端口必须是 1-65535 的数字", window, cx);
+                        });
+                        return false;
+                    };
+                    if port == 0 {
+                        home_for_ok.update(cx, |this, cx| {
+                            this.open_simple_notice_dialog("端口必须是 1-65535 的数字", window, cx);
+                        });
+                        return false;
+                    }
+                    home_for_ok.update(cx, |this, cx| {
+                        this.settings_state.server_port = port;
+                        this.sync_server_config_to_runtime(cx);
+                    });
                     true
                 })
         });
@@ -1780,6 +1915,83 @@ fn detect_primary_ipv4() -> Option<String> {
         }
     }
     None
+}
+
+fn generate_random_alias() -> String {
+    const ADJECTIVES: &[&str] = &[
+        "Adorable",
+        "Beautiful",
+        "Big",
+        "Bright",
+        "Clean",
+        "Clever",
+        "Cool",
+        "Cute",
+        "Cunning",
+        "Determined",
+        "Energetic",
+        "Efficient",
+        "Fantastic",
+        "Fast",
+        "Fine",
+        "Fresh",
+        "Good",
+        "Gorgeous",
+        "Great",
+        "Handsome",
+        "Hot",
+        "Kind",
+        "Lovely",
+        "Mystic",
+        "Neat",
+        "Nice",
+        "Patient",
+        "Pretty",
+        "Powerful",
+        "Rich",
+        "Secret",
+        "Smart",
+        "Solid",
+        "Special",
+        "Strategic",
+        "Strong",
+        "Tidy",
+        "Wise",
+    ];
+    const FRUITS: &[&str] = &[
+        "Apple",
+        "Avocado",
+        "Banana",
+        "Blackberry",
+        "Blueberry",
+        "Broccoli",
+        "Carrot",
+        "Cherry",
+        "Coconut",
+        "Grape",
+        "Lemon",
+        "Lettuce",
+        "Mango",
+        "Melon",
+        "Mushroom",
+        "Onion",
+        "Orange",
+        "Papaya",
+        "Peach",
+        "Pear",
+        "Pineapple",
+        "Potato",
+        "Pumpkin",
+        "Raspberry",
+        "Strawberry",
+        "Tomato",
+    ];
+
+    let seed = uuid::Uuid::new_v4();
+    let bytes = seed.as_bytes();
+    let adj_idx = (u16::from(bytes[0]) << 8 | u16::from(bytes[1])) as usize % ADJECTIVES.len();
+    let fruit_idx = (u16::from(bytes[2]) << 8 | u16::from(bytes[3])) as usize % FRUITS.len();
+    format!("{} {}", ADJECTIVES[adj_idx], FRUITS[fruit_idx])
 }
 
 fn ipv4_prefix(ip: &str) -> Option<String> {

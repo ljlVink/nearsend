@@ -10,7 +10,6 @@ use gpui_component::{
     button::{Button, ButtonCustomVariant, ButtonVariants as _},
     h_flex,
     popover::Popover,
-    tab::{Tab, TabBar},
     v_flex, ActiveTheme as _, Anchor, Icon, Sizable as _, Size, StyledExt as _,
 };
 use gpui_router::RouterState;
@@ -28,6 +27,11 @@ pub fn render_receive_content(
     let server_running = home.receive_state.server_running;
     let animations = home.settings_state.animations;
     let home_entity = cx.entity();
+    let quick_save_selected_index = match quick_save_mode {
+        QuickSaveMode::Off => 0,
+        QuickSaveMode::Favorites => 1,
+        QuickSaveMode::On => 2,
+    };
 
     let info_alias = server_alias.clone();
     let info_ips = server_ips.clone();
@@ -60,10 +64,13 @@ pub fn render_receive_content(
                         .anchor(Anchor::TopRight)
                         .overlay_closable(false)
                         .open(show_advanced)
-                        .on_open_change(move |open, _window, cx| {
-                            home_entity.update(cx, |this, _cx| {
-                                this.receive_state.show_advanced = *open;
-                            });
+                        .on_open_change({
+                            let home_entity = home_entity.clone();
+                            move |open, _window, cx| {
+                                home_entity.update(cx, |this, _cx| {
+                                    this.receive_state.show_advanced = *open;
+                                });
+                            }
                         })
                         .trigger(
                             Button::new("receive-info")
@@ -189,52 +196,163 @@ pub fn render_receive_content(
                     .items_center()
                     .child(
                         div()
-                            .text_lg()
+                            .text_base()
                             .font_medium()
                             .text_color(cx.theme().foreground)
                             .child("自动保存"),
                     )
-                    .child(
-                        TabBar::new("quick-save")
+                    .child({
+                        let quick_save_track_bg = cx.theme().secondary;
+                        let quick_save_selected_bg = cx.theme().primary.opacity(0.16);
+                        let quick_save_border = cx.theme().border.opacity(0.95);
+                        let quick_save_divider = cx.theme().border.opacity(0.92);
+                        let quick_save_text_color = cx.theme().foreground.opacity(0.95);
+
+                        h_flex()
+                            .id("receive-quick-save")
                             .w_full()
-                            .segmented()
-                            .with_size(Size::Large)
-                            .selected_index(match quick_save_mode {
-                                QuickSaveMode::Off => 0,
-                                QuickSaveMode::Favorites => 1,
-                                QuickSaveMode::On => 2,
-                            })
-                            .on_click(cx.listener(|this, index, _window, _cx| {
-                                this.receive_state.quick_save_mode = match *index {
-                                    0 => QuickSaveMode::Off,
-                                    1 => QuickSaveMode::Favorites,
-                                    2 => QuickSaveMode::On,
-                                    _ => QuickSaveMode::Off,
-                                };
-                                match this.receive_state.quick_save_mode {
-                                    QuickSaveMode::Off => {
-                                        this.settings_state.quick_save = false;
-                                        this.settings_state.quick_save_favorites = false;
-                                    }
-                                    QuickSaveMode::Favorites => {
-                                        this.settings_state.quick_save = false;
-                                        this.settings_state.quick_save_favorites = true;
-                                    }
-                                    QuickSaveMode::On => {
-                                        this.settings_state.quick_save = true;
-                                        this.settings_state.quick_save_favorites = false;
-                                    }
-                                }
-                            }))
-                            .children([
-                                Tab::new().flex_1().label("关"),
-                                Tab::new().flex_1().label("收藏夹"),
-                                Tab::new().flex_1().label("开"),
-                            ]),
-                    ),
+                            .max_w(px(430.))
+                            .h(px(60.))
+                            .rounded_full()
+                            .overflow_hidden()
+                            .p(px(1.))
+                            .border_1()
+                            .border_color(quick_save_border)
+                            .bg(quick_save_track_bg)
+                            .child(
+                                div()
+                                    .id("quick-save-off")
+                                    .flex_1()
+                                    .h_full()
+                                    .cursor_pointer()
+                                    .bg(if quick_save_selected_index == 0 {
+                                        quick_save_selected_bg
+                                    } else {
+                                        cx.theme().transparent
+                                    })
+                                    .when(quick_save_selected_index == 0, |this| {
+                                        this.rounded_l(px(999.))
+                                    })
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .on_click({
+                                        let home_entity = home_entity.clone();
+                                        move |_event, _window, cx| {
+                                            home_entity.update(cx, |this, _cx| {
+                                                set_quick_save_mode(this, QuickSaveMode::Off);
+                                            });
+                                        }
+                                    })
+                                    .child(
+                                        div()
+                                            .text_lg()
+                                            .font_semibold()
+                                            .text_color(quick_save_text_color)
+                                            .child("关"),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .h_full()
+                                    .flex()
+                                    .items_center()
+                                    .child(div().w(px(1.)).h(px(36.)).bg(quick_save_divider))
+                                    .child(
+                                        div()
+                                            .id("quick-save-favorites")
+                                            .flex_1()
+                                            .h_full()
+                                            .cursor_pointer()
+                                            .bg(if quick_save_selected_index == 1 {
+                                                quick_save_selected_bg
+                                            } else {
+                                                cx.theme().transparent
+                                            })
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .on_click({
+                                                let home_entity = home_entity.clone();
+                                                move |_event, _window, cx| {
+                                                    home_entity.update(cx, |this, _cx| {
+                                                        set_quick_save_mode(
+                                                            this,
+                                                            QuickSaveMode::Favorites,
+                                                        );
+                                                    });
+                                                }
+                                            })
+                                            .child(
+                                                div()
+                                                    .text_lg()
+                                                    .font_semibold()
+                                                    .text_color(quick_save_text_color)
+                                                    .child("收藏夹"),
+                                            ),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .h_full()
+                                    .flex()
+                                    .items_center()
+                                    .child(div().w(px(1.)).h(px(36.)).bg(quick_save_divider))
+                                    .child(
+                                        div()
+                                            .id("quick-save-on")
+                                            .flex_1()
+                                            .h_full()
+                                            .cursor_pointer()
+                                            .bg(if quick_save_selected_index == 2 {
+                                                quick_save_selected_bg
+                                            } else {
+                                                cx.theme().transparent
+                                            })
+                                            .when(quick_save_selected_index == 2, |this| {
+                                                this.rounded_r(px(999.))
+                                            })
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .on_click(move |_event, _window, cx| {
+                                                home_entity.update(cx, |this, _cx| {
+                                                    set_quick_save_mode(this, QuickSaveMode::On);
+                                                });
+                                            })
+                                            .child(
+                                                div()
+                                                    .text_lg()
+                                                    .font_semibold()
+                                                    .text_color(quick_save_text_color)
+                                                    .child("开"),
+                                            ),
+                                    ),
+                            )
+                    }),
             ),
         )
         .into_any_element()
+}
+
+fn set_quick_save_mode(home: &mut HomePage, mode: QuickSaveMode) {
+    home.receive_state.quick_save_mode = mode;
+    match mode {
+        QuickSaveMode::Off => {
+            home.settings_state.quick_save = false;
+            home.settings_state.quick_save_favorites = false;
+        }
+        QuickSaveMode::Favorites => {
+            home.settings_state.quick_save = false;
+            home.settings_state.quick_save_favorites = true;
+        }
+        QuickSaveMode::On => {
+            home.settings_state.quick_save = true;
+            home.settings_state.quick_save_favorites = false;
+        }
+    }
 }
 
 /// Render a single info row with fixed-width label.
