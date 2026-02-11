@@ -19,6 +19,7 @@ pub struct DevicePlaceholder;
 impl gpui::RenderOnce for DevicePlaceholder {
     fn render(self, _window: &mut Window, cx: &mut gpui::App) -> impl IntoElement {
         let muted = cx.theme().muted;
+        let skeleton = cx.theme().muted_foreground.opacity(0.22);
         let icon_count = DEVICE_ICONS.len();
         let cycle_ms: u64 = 3000 * icon_count as u64;
 
@@ -30,7 +31,6 @@ impl gpui::RenderOnce for DevicePlaceholder {
             .rounded_lg()
             .p(sizing::CARD_PADDING)
             .mb(spacing::MD)
-            .opacity(0.5)
             .child(
                 h_flex()
                     .gap(spacing::MD)
@@ -80,7 +80,11 @@ impl gpui::RenderOnce for DevicePlaceholder {
                             .flex_1()
                             .child(
                                 // Name placeholder bar
-                                div().w(px(100.)).h(px(14.)).bg(muted).rounded(px(4.)),
+                                div()
+                                    .w(px(100.))
+                                    .h(px(14.))
+                                    .bg(skeleton)
+                                    .rounded(px(4.)),
                             )
                             .child(
                                 h_flex()
@@ -89,14 +93,14 @@ impl gpui::RenderOnce for DevicePlaceholder {
                                         div()
                                             .w(px(52.))
                                             .h(px(20.))
-                                            .bg(muted)
+                                            .bg(skeleton)
                                             .rounded(px(6.)),
                                     )
                                     .child(
                                         div()
                                             .w(px(120.))
                                             .h(px(20.))
-                                            .bg(muted)
+                                            .bg(skeleton)
                                             .rounded(px(6.)),
                                     ),
                             ),

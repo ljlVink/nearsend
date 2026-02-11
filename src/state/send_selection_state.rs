@@ -13,9 +13,10 @@ pub struct SendSelectionItem {
 impl SendSelectionItem {
     pub fn from_text(text: String) -> Self {
         let size = text.len() as u64;
+        let name = text.clone();
         Self {
-            path: PathBuf::from("text.txt"),
-            name: "text.txt".to_string(),
+            path: PathBuf::from(name.clone()),
+            name,
             size,
             file_type: "text/plain".to_string(),
             text_content: Some(text),
@@ -54,12 +55,11 @@ impl SendSelectionState {
     pub fn update_text(&mut self, index: usize, text: String) {
         if let Some(item) = self.items.get_mut(index) {
             let size = text.len() as u64;
-            item.name = "text.txt".to_string();
-            item.path = PathBuf::from("text.txt");
+            item.name = text.clone();
+            item.path = PathBuf::from(text.clone());
             item.file_type = "text/plain".to_string();
             item.size = size;
             item.text_content = Some(text);
         }
     }
 }
-

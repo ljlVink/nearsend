@@ -18,7 +18,7 @@ use crate::state::{
 };
 use gpui::{div, prelude::*, px, AnyElement, Context, Entity, IntoElement, Window};
 use gpui_component::input::{Input, InputState};
-use gpui_component::button::{Button, ButtonVariants as _};
+use gpui_component::button::{Button, ButtonCustomVariant, ButtonVariants as _};
 use gpui_component::select::{Select, SelectEvent, SelectState};
 use gpui_component::{
     h_flex, v_flex, ActiveTheme as _, Icon, IndexPath, Sizable as _, StyledExt as _, WindowExt as _,
@@ -54,7 +54,6 @@ pub struct HomePage {
     pub(super) text_input_state: Option<Entity<InputState>>,
     // Input states for the send-to-address dialog
     pub(super) send_ip_input_state: Option<Entity<InputState>>,
-    pub(super) send_port_input_state: Option<Entity<InputState>>,
 }
 
 impl HomePage {
@@ -79,9 +78,14 @@ impl HomePage {
             language_select: None,
             text_input_state: None,
             send_ip_input_state: None,
-            send_port_input_state: None,
         }
     }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AddressInputMode {
+    Label,
+    IpAddress,
 }
 
 impl gpui::Render for HomePage {
@@ -337,30 +341,53 @@ impl HomePage {
             let home_folder = home_entity.clone();
             let home_text = home_entity.clone();
             let home_clipboard = home_entity.clone();
+            let variant = ButtonCustomVariant::new(_cx)
+                .color(_cx.theme().secondary)
+                .foreground(_cx.theme().foreground)
+                .hover(_cx.theme().secondary)
+                .active(_cx.theme().secondary);
             dialog
-                .title("加入文件")
+                .title("你想加入什么文件？")
                 .overlay(true)
-                .w(px(560.))
-                .child(div().w_full().text_lg().child("你想加入什么文件?"))
+                .w(px(340.))
                 .child(
                     h_flex()
                         .w_full()
                         .gap(px(10.))
                         .flex_wrap()
+                        .justify_start()
                         .child(
                             Button::new("add-file")
-                                .primary()
+                                .custom(variant.clone())
+                                .w(px(90.))
+                                .h(px(65.))
+                                .rounded_md()
                                 .on_click(move |_event, window, cx| {
                                     window.close_dialog(cx);
                                     home_file.update(cx, |this, cx| {
                                         this.handle_pick_content(SendContentType::File, window, cx);
                                     });
                                 })
-                                .child("文件"),
+                                .child(
+                                    v_flex()
+                                        .items_center()
+                                        .justify_between()
+                                        .gap(px(4.))
+                                        .child(
+                                            Icon::default()
+                                                .path("icons/file.svg")
+                                                .with_size(gpui_component::Size::Medium)
+                                                .text_color(_cx.theme().foreground),
+                                        )
+                                        .child(div().text_sm().text_center().child("文件")),
+                                ),
                         )
                         .child(
                             Button::new("add-folder")
-                                .primary()
+                                .custom(variant.clone())
+                                .w(px(90.))
+                                .h(px(65.))
+                                .rounded_md()
                                 .on_click(move |_event, window, cx| {
                                     window.close_dialog(cx);
                                     home_folder.update(cx, |this, cx| {
@@ -371,22 +398,52 @@ impl HomePage {
                                         );
                                     });
                                 })
-                                .child("文件夹"),
+                                .child(
+                                    v_flex()
+                                        .items_center()
+                                        .justify_between()
+                                        .gap(px(4.))
+                                        .child(
+                                            Icon::default()
+                                                .path("icons/folder.svg")
+                                                .with_size(gpui_component::Size::Medium)
+                                                .text_color(_cx.theme().foreground),
+                                        )
+                                        .child(div().text_sm().text_center().child("文件夹")),
+                                ),
                         )
                         .child(
                             Button::new("add-text")
-                                .primary()
+                                .custom(variant.clone())
+                                .w(px(90.))
+                                .h(px(65.))
+                                .rounded_md()
                                 .on_click(move |_event, window, cx| {
                                     window.close_dialog(cx);
                                     home_text.update(cx, |this, cx| {
                                         this.handle_pick_content(SendContentType::Text, window, cx);
                                     });
                                 })
-                                .child("文本"),
+                                .child(
+                                    v_flex()
+                                        .items_center()
+                                        .justify_between()
+                                        .gap(px(4.))
+                                        .child(
+                                            Icon::default()
+                                                .path("icons/book-open.svg")
+                                                .with_size(gpui_component::Size::Medium)
+                                                .text_color(_cx.theme().foreground),
+                                        )
+                                        .child(div().text_sm().text_center().child("文本")),
+                                ),
                         )
                         .child(
                             Button::new("add-clipboard")
-                                .primary()
+                                .custom(variant)
+                                .w(px(90.))
+                                .h(px(65.))
+                                .rounded_md()
                                 .on_click(move |_event, window, cx| {
                                     window.close_dialog(cx);
                                     home_clipboard.update(cx, |this, cx| {
@@ -397,7 +454,19 @@ impl HomePage {
                                         );
                                     });
                                 })
-                                .child("剪贴板"),
+                                .child(
+                                    v_flex()
+                                        .items_center()
+                                        .justify_between()
+                                        .gap(px(4.))
+                                        .child(
+                                            Icon::default()
+                                                .path("icons/external-link.svg")
+                                                .with_size(gpui_component::Size::Medium)
+                                                .text_color(_cx.theme().foreground),
+                                        )
+                                        .child(div().text_sm().text_center().child("剪贴板")),
+                                ),
                         ),
                 )
                 .alert()
@@ -556,116 +625,236 @@ impl HomePage {
         });
     }
 
-    /// Opens a dialog to enter IP address and port for manual send.
+    /// Opens LocalSend-like address input dialog (Label/IP tabs, single input).
     pub(super) fn open_send_to_address_dialog(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let ip_input_state = cx.new(|cx| InputState::new(window, cx).placeholder("输入IP地址"));
-        let port_input_state = cx.new(|cx| {
-            InputState::new(window, cx)
-                .placeholder("端口")
-                .default_value("53317")
-        });
-        self.send_ip_input_state = Some(ip_input_state.clone());
-        self.send_port_input_state = Some(port_input_state.clone());
+        self.open_send_to_address_dialog_with_mode(AddressInputMode::Label, window, cx);
+    }
 
+    fn open_send_to_address_dialog_with_mode(
+        &mut self,
+        mode: AddressInputMode,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let placeholder = match mode {
+            AddressInputMode::Label => "#123",
+            AddressInputMode::IpAddress => "输入IP地址",
+        };
+        let ip_input_state = cx.new(|cx| InputState::new(window, cx).placeholder(placeholder));
+        self.send_ip_input_state = Some(ip_input_state.clone());
         let home_entity = cx.entity();
+        let prefixes = self.local_ip_prefixes();
+        let example_text = match mode {
+            AddressInputMode::Label => {
+                if prefixes.is_empty() {
+                    "示例：123\n可用网段：\n- 192.168.1.".to_string()
+                } else {
+                    let mut text = "示例：123\n可用网段：".to_string();
+                    for p in prefixes.iter().take(3) {
+                        text.push_str(&format!("\n- {}.", p));
+                    }
+                    text
+                }
+            }
+            AddressInputMode::IpAddress => {
+                if prefixes.is_empty() {
+                    "示例：\n- 192.168.1.23\n- 192.168.1.123".to_string()
+                } else {
+                    let mut text = "示例：".to_string();
+                    for p in prefixes.iter().take(3) {
+                        text.push_str(&format!("\n- {}.123", p));
+                    }
+                    text
+                }
+            }
+        };
+        let tag_tab_style = ButtonCustomVariant::new(cx)
+            .color(if mode == AddressInputMode::Label {
+                cx.theme().primary.opacity(0.2)
+            } else {
+                cx.theme().secondary
+            })
+            .foreground(if mode == AddressInputMode::Label {
+                cx.theme().primary
+            } else {
+                cx.theme().foreground
+            })
+            .hover(if mode == AddressInputMode::Label {
+                cx.theme().primary.opacity(0.2)
+            } else {
+                cx.theme().secondary
+            })
+            .active(if mode == AddressInputMode::Label {
+                cx.theme().primary.opacity(0.2)
+            } else {
+                cx.theme().secondary
+            });
+        let ip_tab_style = ButtonCustomVariant::new(cx)
+            .color(if mode == AddressInputMode::IpAddress {
+                cx.theme().primary.opacity(0.2)
+            } else {
+                cx.theme().secondary
+            })
+            .foreground(if mode == AddressInputMode::IpAddress {
+                cx.theme().primary
+            } else {
+                cx.theme().foreground
+            })
+            .hover(if mode == AddressInputMode::IpAddress {
+                cx.theme().primary.opacity(0.2)
+            } else {
+                cx.theme().secondary
+            })
+            .active(if mode == AddressInputMode::IpAddress {
+                cx.theme().primary.opacity(0.2)
+            } else {
+                cx.theme().secondary
+            });
 
         window.open_dialog(cx, move |dialog, _window, _cx| {
             let ip_for_ok = ip_input_state.clone();
-            let port_for_ok = port_input_state.clone();
             let home_for_ok = home_entity.clone();
+            let home_for_tag_tab = home_entity.clone();
+            let home_for_ip_tab = home_entity.clone();
+            let mode_for_ok = mode;
 
             dialog
-                .title("发送到设备")
+                .title("输入地址")
                 .overlay(true)
-                .w(px(360.))
+                .w(px(340.))
                 .child(
                     v_flex()
                         .w_full()
-                        .gap(px(10.))
-                        .child(Input::new(&ip_input_state).appearance(true))
-                        .child(Input::new(&port_input_state).appearance(true)),
+                        .gap(px(12.))
+                        .child(
+                            h_flex()
+                                .gap(px(0.))
+                                .child(
+                                    Button::new("address-mode-label")
+                                        .custom(tag_tab_style.clone())
+                                        .w(px(72.))
+                                        .h(px(32.))
+                                        .rounded_l(px(12.))
+                                        .rounded_r(px(0.))
+                                        .on_click(move |_event, window, cx| {
+                                            if mode != AddressInputMode::Label {
+                                                window.close_dialog(cx);
+                                                home_for_tag_tab.update(cx, |this, cx| {
+                                                    this.open_send_to_address_dialog_with_mode(
+                                                        AddressInputMode::Label,
+                                                        window,
+                                                        cx,
+                                                    );
+                                                });
+                                            }
+                                        })
+                                        .child(div().text_sm().font_medium().child("标签")),
+                                )
+                                .child(
+                                    Button::new("address-mode-ip")
+                                        .custom(ip_tab_style.clone())
+                                        .w(px(88.))
+                                        .h(px(32.))
+                                        .rounded_l(px(0.))
+                                        .rounded_r(px(12.))
+                                        .on_click(move |_event, window, cx| {
+                                            if mode != AddressInputMode::IpAddress {
+                                                window.close_dialog(cx);
+                                                home_for_ip_tab.update(cx, |this, cx| {
+                                                    this.open_send_to_address_dialog_with_mode(
+                                                        AddressInputMode::IpAddress,
+                                                        window,
+                                                        cx,
+                                                    );
+                                                });
+                                            }
+                                        })
+                                        .child(div().text_sm().font_medium().child("IP 地址")),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .w_full()
+                                .shadow_xs()
+                                .rounded_md()
+                                .child(
+                                    Input::new(&ip_input_state)
+                                        .appearance(true)
+                                        .large(),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .w_full()
+                                .text_sm()
+                                .text_color(_cx.theme().muted_foreground)
+                                .child(example_text.clone()),
+                        ),
                 )
                 .confirm()
                 .button_props(
                     gpui_component::dialog::DialogButtonProps::default()
-                        .ok_text("发送")
+                        .ok_text("确认")
                         .cancel_text("取消"),
                 )
-                .on_ok(move |_event, _window, cx| {
-                    let ip = ip_for_ok.read(cx).value().to_string();
-                    let port_str = port_for_ok.read(cx).value().to_string();
-                    let port: u16 = port_str.parse().unwrap_or(53317);
-
-                    if !ip.is_empty() {
-                        home_for_ok.update(cx, |this, cx| {
-                            this.execute_send(ip, port, cx);
-                        });
+                .on_ok(move |_event, window, cx| {
+                    let raw = ip_for_ok.read(cx).value().trim().to_string();
+                    if raw.is_empty() {
+                        return false;
                     }
+                    home_for_ok.update(cx, |this, cx| {
+                        let port = this.settings_state.server_port;
+                        match mode_for_ok {
+                            AddressInputMode::IpAddress => {
+                                this.execute_send(raw.clone(), port, cx);
+                            }
+                            AddressInputMode::Label => {
+                                if let Some(ip) = this.resolve_labeled_ip(&raw) {
+                                    this.execute_send(ip, port, cx);
+                                } else {
+                                    this.open_simple_notice_dialog(
+                                        "无法根据标签推导可用 IP，请切换到“IP 地址”模式直接输入。",
+                                        window,
+                                        cx,
+                                    );
+                                }
+                            }
+                        }
+                    });
                     true
                 })
         });
     }
 
-    pub(super) fn open_send_target_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let home_entity = cx.entity();
-        let nearby = self.send_state.nearby_devices.clone();
-        let endpoints = self.send_state.nearby_endpoints.clone();
+    fn resolve_labeled_ip(&self, label: &str) -> Option<String> {
+        let suffix = label.trim().trim_start_matches('#');
+        let suffix_num: u8 = suffix.parse().ok()?;
+        let prefixes = self.local_ip_prefixes();
+        let prefix = prefixes.first()?;
+        Some(format!("{}.{}", prefix, suffix_num))
+    }
 
-        window.open_dialog(cx, move |dialog, _window, _cx| {
-            let home_for_manual = home_entity.clone();
-            dialog
-                .title("选择发送目标")
-                .overlay(true)
-                .w(px(420.))
-                .child(
-                    v_flex()
-                        .w_full()
-                        .gap(px(8.))
-                        .child(div().text_sm().child("附近设备"))
-                        .children(nearby.iter().map(|device| {
-                            let alias = device.alias.clone();
-                            let token = device.token.clone();
-                            let endpoint = endpoints.get(&token).cloned();
-                            let home_for_device = home_entity.clone();
-                            Button::new(format!("send-target-device-{}", token))
-                                .outline()
-                                .w_full()
-                                .justify_start()
-                                .on_click(move |_event, window, cx| {
-                                    window.close_dialog(cx);
-                                    home_for_device.update(cx, |this, cx| {
-                                        if let Some(ep) = endpoint.clone() {
-                                            this.execute_send(ep.ip, ep.port, cx);
-                                        } else {
-                                            this.open_send_to_address_dialog(window, cx);
-                                        }
-                                    });
-                                })
-                                .child(alias)
-                        }))
-                        .child(div().h(px(4.)))
-                        .child(
-                            Button::new("send-target-manual")
-                                .primary()
-                                .w_full()
-                                .on_click(move |_event, window, cx| {
-                                    window.close_dialog(cx);
-                                    home_for_manual.update(cx, |this, cx| {
-                                        this.open_send_to_address_dialog(window, cx);
-                                    });
-                                })
-                                .child("输入 IP 地址"),
-                        ),
-                )
-                .alert()
-                .button_props(
-                    gpui_component::dialog::DialogButtonProps::default().ok_text("关闭"),
-                )
-        });
+    fn local_ip_prefixes(&self) -> Vec<String> {
+        let mut prefixes = std::collections::BTreeSet::new();
+        for ip in &self.send_state.local_ips {
+            if let Some(p) = ipv4_prefix(ip) {
+                prefixes.insert(p);
+            }
+        }
+        if let Some(ip) = detect_primary_ipv4() {
+            if let Some(p) = ipv4_prefix(&ip) {
+                prefixes.insert(p);
+            }
+        }
+        prefixes.into_iter().collect()
+    }
+
+    pub(super) fn open_send_target_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_send_to_address_dialog(window, cx);
     }
 
     /// Execute the send flow: build entries from selected_files, spawn thread with tokio runtime.
@@ -704,6 +893,8 @@ impl HomePage {
                 }
             })
             .collect();
+        let is_single_text_message =
+            files.len() == 1 && matches!(files.first(), Some(SendFileEntry::Text { .. }));
 
         if files.is_empty() {
             log::warn!("No files selected to send");
@@ -821,10 +1012,14 @@ impl HomePage {
                     let dto = match &entry {
                         SendFileEntry::Text { content } => V2FileDto {
                             id: file_id.clone(),
-                            file_name: "text.txt".to_string(),
+                            file_name: "message.txt".to_string(),
                             size: content.as_bytes().len() as u64,
                             file_type: "text/plain".to_string(),
-                            preview: Some(content.clone()),
+                            preview: if is_single_text_message {
+                                Some(content.clone())
+                            } else {
+                                None
+                            },
                         },
                         SendFileEntry::File {
                             name, size, file_type, ..
@@ -841,6 +1036,7 @@ impl HomePage {
                 }
 
                 let mut v2_last_err: Option<String> = None;
+                let mut v2_no_upload_success = false;
                 let v2_http_client = match reqwest::Client::builder()
                     .use_rustls_tls()
                     .danger_accept_invalid_certs(true)
@@ -908,6 +1104,12 @@ impl HomePage {
                         .await
                     {
                         Ok(res) => {
+                            if res.status() == reqwest::StatusCode::NO_CONTENT {
+                                // LocalSend message-only transfer: accepted without binary upload.
+                                v2_selected_scheme = Some(scheme);
+                                v2_no_upload_success = true;
+                                break;
+                            }
                             if !res.status().is_success() {
                                 let msg = format!("status={}", res.status());
                                 log::warn!(
@@ -952,6 +1154,10 @@ impl HomePage {
                         }
                     }
                 }
+                if v2_no_upload_success {
+                    log::info!("v2 message transfer complete (no upload required)");
+                    return;
+                }
 
                 if let (Some(scheme), Some(v2_response)) = (v2_selected_scheme, v2_response) {
                     log::info!(
@@ -962,6 +1168,13 @@ impl HomePage {
                         v2_response.session_id
                     );
 
+                    if v2_response.files.is_empty() {
+                        log::info!(
+                            "v2 transfer complete with empty file selection, session_id={}",
+                            v2_response.session_id
+                        );
+                        return;
+                    }
                     for (file_id, token) in &v2_response.files {
                         if let Some(entry) = v2_entry_map.remove(file_id) {
                             let (body, content_type) = match entry {
@@ -1054,11 +1267,15 @@ impl HomePage {
                     let dto = match &entry {
                         SendFileEntry::Text { content } => localsend::model::transfer::FileDto {
                             id: file_id.clone(),
-                            file_name: "text.txt".to_string(),
+                            file_name: "message.txt".to_string(),
                             size: content.as_bytes().len() as u64,
                             file_type: "text/plain".to_string(),
                             sha256: None,
-                            preview: None,
+                            preview: if is_single_text_message {
+                                Some(content.clone())
+                            } else {
+                                None
+                            },
                             metadata: None,
                         },
                         SendFileEntry::File {
@@ -1275,4 +1492,12 @@ fn detect_primary_ipv4() -> Option<String> {
         std::net::IpAddr::V4(ip) => Some(ip.to_string()),
         _ => None,
     }
+}
+
+fn ipv4_prefix(ip: &str) -> Option<String> {
+    let mut parts = ip.split('.');
+    let a: u8 = parts.next()?.parse().ok()?;
+    let b: u8 = parts.next()?.parse().ok()?;
+    let c: u8 = parts.next()?.parse().ok()?;
+    Some(format!("{}.{}.{}", a, b, c))
 }

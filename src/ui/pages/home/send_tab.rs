@@ -158,7 +158,7 @@ pub fn render_send_content(
                             .child(
                                 div()
                                     .text_lg()
-                                    .font_weight(gpui::FontWeight::BLACK)
+                                    .font_bold()
                                     .text_color(cx.theme().foreground)
                                     .child("选择"),
                             ),
@@ -301,35 +301,41 @@ pub fn render_send_content(
                                         // File thumbnails
                                         .child(
                                             div()
-                                                .h(px(80.))
-                                                .overflow_x_scrollbar()
                                                 .child(
                                                     h_flex()
                                                         .gap(px(10.))
                                                         .children(selected_files.iter().map(|file| {
+                                                            let icon_path = if file.text_content.is_some() {
+                                                                "icons/book-open.svg"
+                                                            } else {
+                                                                let lower = file.name.to_lowercase();
+                                                                if lower.ends_with(".png")
+                                                                    || lower.ends_with(".jpg")
+                                                                    || lower.ends_with(".jpeg")
+                                                                    || lower.ends_with(".gif")
+                                                                    || lower.ends_with(".webp")
+                                                                    || lower.ends_with(".bmp")
+                                                                    || lower.ends_with(".svg")
+                                                                {
+                                                                    "icons/image.svg"
+                                                                } else {
+                                                                    "icons/file.svg"
+                                                                }
+                                                            };
                                                             div()
-                                                                .pr(px(10.))
                                                                 .child(
-                                                                    v_flex()
-                                                                        .w(px(80.))
-                                                                        .h(px(80.))
-                                                                        .bg(cx.theme().muted)
+                                                                    div()
+                                                                        .w(px(56.))
+                                                                        .h(px(56.))
+                                                                        .bg(cx.theme().primary.opacity(0.18))
                                                                         .rounded_md()
+                                                                        .flex()
                                                                         .items_center()
                                                                         .justify_center()
-                                                                        .gap(px(4.))
                                                                         .child(
                                                                             Icon::default()
-                                                                                .path("icons/file.svg")
+                                                                                .path(icon_path)
                                                                                 .with_size(gpui_component::Size::Medium),
-                                                                        )
-                                                                        .child(
-                                                                            div()
-                                                                                .text_xs()
-                                                                                .text_color(cx.theme().muted_foreground)
-                                                                                .max_w(px(72.))
-                                                                                .overflow_hidden()
-                                                                                .child(file.name.clone()),
                                                                         ),
                                                                 )
                                                         })),
@@ -385,7 +391,7 @@ pub fn render_send_content(
                                     .child(
                                         div()
                                             .text_lg()
-                                            .font_weight(gpui::FontWeight::BLACK)
+                                            .font_bold()
                                             .text_color(cx.theme().foreground)
                                             .child("附近的设备"),
                                     )

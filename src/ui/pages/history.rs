@@ -76,7 +76,7 @@ impl gpui::Render for HistoryPage {
                         div()
                             .flex_1()
                             .text_center()
-                            .text_xl()
+                            .text_base()
                             .font_bold()
                             .text_color(cx.theme().foreground)
                             .child("历史"),
