@@ -1,5 +1,8 @@
 use crate::core::cert::CertPair;
-use crate::core::receive_events::{push_incoming_event, IncomingFileMeta, IncomingTransferEvent};
+use crate::core::receive_events::{
+    push_incoming_event, submit_incoming_decision, wait_incoming_decision, IncomingFileMeta,
+    IncomingTransferDecision, IncomingTransferEvent,
+};
 use base64::Engine as _;
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
@@ -16,31 +19,56 @@ use std::collections::HashMap;
 use std::convert::Infallible;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;
+use std::time::{Duration as StdDuration, Instant};
 use tokio::runtime::Handle;
 use tokio::sync::{oneshot, Mutex};
+use tokio::time::{timeout, Duration};
 use tokio_rustls::TlsAcceptor;
 
 #[derive(Clone)]
 struct ServerState {
     info: Arc<Mutex<ClientInfo>>,
     sessions: Arc<Mutex<HashMap<String, IncomingSession>>>,
+    pin_config: Arc<Mutex<ReceivePinConfig>>,
+    pin_attempts: Arc<Mutex<HashMap<IpAddr, PinAttemptInfo>>>,
+}
+
+#[derive(Clone, Debug)]
+struct ReceivePinConfig {
+    enabled: bool,
+    pin: String,
+}
+
+#[derive(Clone, Debug)]
+struct PinAttemptInfo {
+    attempts: u8,
+    last_failed_at: Instant,
 }
 
 #[derive(Clone, Debug)]
 struct IncomingSessionFile {
     file_name: String,
     file_type: String,
-    token: String,
+    token: Option<String>,
     received: bool,
 }
 
 #[derive(Clone, Debug)]
 struct IncomingSession {
+    status: IncomingSessionStatus,
     sender_ip: IpAddr,
     sender_alias: String,
     sender_device_model: Option<String>,
     sender_fingerprint: String,
     files: HashMap<String, IncomingSessionFile>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum IncomingSessionStatus {
+    Waiting,
+    Sending,
+    Completed,
+    Cancelled,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -129,6 +157,7 @@ struct CompatRegisterResponse {
 pub struct ServerManager {
     port: u16,
     stop_tx: Option<oneshot::Sender<()>>,
+    pin_config: Arc<Mutex<ReceivePinConfig>>,
 }
 
 impl ServerManager {
@@ -136,6 +165,10 @@ impl ServerManager {
         Self {
             port,
             stop_tx: None,
+            pin_config: Arc::new(Mutex::new(ReceivePinConfig {
+                enabled: false,
+                pin: "123456".to_string(),
+            })),
         }
     }
 
@@ -162,8 +195,11 @@ impl ServerManager {
         self.stop_tx = Some(stop_tx);
 
         let port = self.port;
+        let pin_config = self.pin_config.clone();
         handle.spawn(async move {
-            if let Err(e) = start_with_port(port, client_info, tls_acceptor, stop_rx).await {
+            if let Err(e) =
+                start_with_port(port, client_info, tls_acceptor, pin_config, stop_rx).await
+            {
                 log::error!("Server error: {}", e);
             }
         });
@@ -185,6 +221,15 @@ impl ServerManager {
 
     pub fn set_port(&mut self, port: u16) {
         self.port = port;
+    }
+
+    pub fn set_receive_pin_config(&mut self, enabled: bool, pin: String, handle: &Handle) {
+        let config = self.pin_config.clone();
+        handle.spawn(async move {
+            let mut cfg = config.lock().await;
+            cfg.enabled = enabled;
+            cfg.pin = pin;
+        });
     }
 
     pub fn is_running(&self) -> bool {
@@ -209,6 +254,7 @@ async fn start_with_port(
     port: u16,
     info: ClientInfo,
     tls_acceptor: Option<TlsAcceptor>,
+    pin_config: Arc<Mutex<ReceivePinConfig>>,
     mut stop_rx: oneshot::Receiver<()>,
 ) -> anyhow::Result<()> {
     let listener_v4 = tokio::net::TcpListener::bind((Ipv4Addr::UNSPECIFIED, port)).await?;
@@ -223,6 +269,8 @@ async fn start_with_port(
     let state = ServerState {
         info: Arc::new(Mutex::new(info)),
         sessions: Arc::new(Mutex::new(HashMap::new())),
+        pin_config,
+        pin_attempts: Arc::new(Mutex::new(HashMap::new())),
     };
 
     loop {
@@ -458,13 +506,17 @@ async fn handle_prepare_upload(
     remote_ip: IpAddr,
     v2: bool,
 ) -> Result<Response<Full<Bytes>>, (StatusCode, String)> {
-    // Keep behavior simple: only one active incoming session at a time.
+    const DECISION_WAIT_TIMEOUT_SECS: u64 = 300;
+    let query = parse_query(req.uri().query().unwrap_or_default());
+
+    // Align with LocalSend: block incoming requests when already in a session.
     if !state.sessions.lock().await.is_empty() {
         return Err((
             StatusCode::CONFLICT,
             "Blocked by another session".to_string(),
         ));
     }
+    check_pin(&state, remote_ip, query.get("pin").map(|v| v.as_str())).await?;
 
     let payload: WirePrepareUploadRequest = parse_json_body(req.into_body()).await?;
     if payload.files.is_empty() {
@@ -528,6 +580,7 @@ async fn handle_prepare_upload(
             file_name: f.file_name.clone(),
             file_type: normalize_file_type(&f.file_type),
             size: f.size,
+            preview: f.preview.clone(),
         });
     }
     push_incoming_event(IncomingTransferEvent::Prepared {
@@ -561,14 +614,12 @@ async fn handle_prepare_upload(
     let mut accepted_files = HashMap::new();
     let mut session_files = HashMap::new();
     for (file_id, f) in payload.files {
-        let token = uuid::Uuid::new_v4().to_string();
-        accepted_files.insert(file_id.clone(), token.clone());
         session_files.insert(
             file_id,
             IncomingSessionFile {
                 file_name: f.file_name,
                 file_type: normalize_file_type(&f.file_type),
-                token,
+                token: None,
                 received: false,
             },
         );
@@ -577,6 +628,7 @@ async fn handle_prepare_upload(
     state.sessions.lock().await.insert(
         session_id.clone(),
         IncomingSession {
+            status: IncomingSessionStatus::Waiting,
             sender_ip: remote_ip,
             sender_alias,
             sender_device_model,
@@ -584,6 +636,70 @@ async fn handle_prepare_upload(
             files: session_files,
         },
     );
+
+    let decision = match timeout(
+        Duration::from_secs(DECISION_WAIT_TIMEOUT_SECS),
+        wait_incoming_decision(&session_id),
+    )
+    .await
+    {
+        Ok(decision) => decision,
+        Err(_) => IncomingTransferDecision::Decline,
+    };
+
+    match decision {
+        IncomingTransferDecision::Decline => {
+            state.sessions.lock().await.remove(&session_id);
+            push_incoming_event(IncomingTransferEvent::Cancelled {
+                session_id: session_id.clone(),
+                reason: Some("declined by recipient".to_string()),
+            });
+            return Err((
+                StatusCode::FORBIDDEN,
+                "File request declined by recipient".to_string(),
+            ));
+        }
+        IncomingTransferDecision::AcceptAll => {
+            let mut sessions = state.sessions.lock().await;
+            if let Some(session) = sessions.get_mut(&session_id) {
+                session.status = IncomingSessionStatus::Sending;
+                for (file_id, file) in session.files.iter_mut() {
+                    let token = uuid::Uuid::new_v4().to_string();
+                    accepted_files.insert(file_id.clone(), token.clone());
+                    file.token = Some(token);
+                }
+            } else {
+                return Err((StatusCode::CONFLICT, "No session".to_string()));
+            }
+        }
+        IncomingTransferDecision::AcceptSelected(selected_ids) => {
+            let selected_set: std::collections::HashSet<String> =
+                selected_ids.into_iter().collect();
+            if selected_set.is_empty() {
+                state.sessions.lock().await.remove(&session_id);
+                push_incoming_event(IncomingTransferEvent::Cancelled {
+                    session_id: session_id.clone(),
+                    reason: Some("accepted with empty selection".to_string()),
+                });
+                return Ok(no_content());
+            }
+            let mut sessions = state.sessions.lock().await;
+            if let Some(session) = sessions.get_mut(&session_id) {
+                session.status = IncomingSessionStatus::Sending;
+                for (file_id, file) in session.files.iter_mut() {
+                    if selected_set.contains(file_id) {
+                        let token = uuid::Uuid::new_v4().to_string();
+                        accepted_files.insert(file_id.clone(), token.clone());
+                        file.token = Some(token);
+                    } else {
+                        file.token = None;
+                    }
+                }
+            } else {
+                return Err((StatusCode::CONFLICT, "No session".to_string()));
+            }
+        }
+    }
 
     if v2 {
         Ok(json_response(
@@ -641,11 +757,17 @@ async fn handle_upload(
         if session.sender_ip != remote_ip {
             return Err((StatusCode::FORBIDDEN, "Invalid IP address".to_string()));
         }
+        if session.status != IncomingSessionStatus::Sending {
+            return Err((
+                StatusCode::CONFLICT,
+                "Recipient is in wrong state".to_string(),
+            ));
+        }
         let file = session
             .files
             .get_mut(&file_id)
             .ok_or((StatusCode::FORBIDDEN, "Invalid token".to_string()))?;
-        if file.token != token {
+        if file.token.as_deref() != Some(token.as_str()) {
             return Err((StatusCode::FORBIDDEN, "Invalid token".to_string()));
         }
 
@@ -665,6 +787,9 @@ async fn handle_upload(
 
         file.received = true;
         let completed_now = session.files.values().all(|f| f.received);
+        if completed_now {
+            session.status = IncomingSessionStatus::Completed;
+        }
         (
             session_id,
             Some(file_path.to_string_lossy().to_string()),
@@ -696,25 +821,29 @@ async fn handle_cancel(
 ) -> Result<Response<Full<Bytes>>, (StatusCode, String)> {
     let query = parse_query(req.uri().query().unwrap_or_default());
     let session_id_query = query_first(&query, &["sessionId", "session_id", "sid"]).cloned();
-    if v2 && session_id_query.is_none() {
-        return Err((StatusCode::BAD_REQUEST, "missing sessionId".to_string()));
-    }
-
     let session_id = if let Some(session_id) = session_id_query {
         session_id
     } else {
-        state
-            .sessions
-            .lock()
-            .await
-            .keys()
-            .next()
-            .cloned()
-            .unwrap_or_default()
+        let sessions = state.sessions.lock().await;
+        if !v2 {
+            sessions.keys().next().cloned().unwrap_or_default()
+        } else if sessions.len() == 1 {
+            let (id, session) = sessions.iter().next().expect("checked len == 1");
+            // Align with LocalSend: in waiting stage v2 cancel may omit sessionId.
+            let waiting = session.files.values().all(|f| f.token.is_none());
+            if waiting {
+                id.clone()
+            } else {
+                return Err((StatusCode::BAD_REQUEST, "missing sessionId".to_string()));
+            }
+        } else {
+            return Err((StatusCode::BAD_REQUEST, "missing sessionId".to_string()));
+        }
     };
 
     if !session_id.is_empty() {
-        if let Some(session) = state.sessions.lock().await.remove(&session_id) {
+        if let Some(mut session) = state.sessions.lock().await.remove(&session_id) {
+            session.status = IncomingSessionStatus::Cancelled;
             log::info!(
                 "cancelled session {} from {} ({:?}), files={}",
                 session_id,
@@ -723,9 +852,10 @@ async fn handle_cancel(
                 session.files.len()
             );
             push_incoming_event(IncomingTransferEvent::Cancelled {
-                session_id,
+                session_id: session_id.clone(),
                 reason: Some(format!("cancelled by {}", session.sender_fingerprint)),
             });
+            submit_incoming_decision(session_id, IncomingTransferDecision::Decline);
         }
     }
     Ok(json_response(StatusCode::OK, &serde_json::json!({})))
@@ -741,6 +871,60 @@ async fn parse_json_body<T: serde::de::DeserializeOwned>(
         .to_bytes();
     serde_json::from_slice(&bytes)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("invalid json: {}", e)))
+}
+
+async fn check_pin(
+    state: &ServerState,
+    remote_ip: IpAddr,
+    request_pin: Option<&str>,
+) -> Result<(), (StatusCode, String)> {
+    const PIN_MAX_ATTEMPTS: u8 = 3;
+    const PIN_ATTEMPT_WINDOW_SECS: u64 = 300;
+
+    let (enabled, configured_pin) = {
+        let cfg = state.pin_config.lock().await;
+        (cfg.enabled, cfg.pin.clone())
+    };
+    if !enabled || configured_pin.trim().is_empty() {
+        return Ok(());
+    }
+
+    let now = Instant::now();
+    let window = StdDuration::from_secs(PIN_ATTEMPT_WINDOW_SECS);
+    let mut attempts_guard = state.pin_attempts.lock().await;
+    attempts_guard.retain(|_, entry| now.duration_since(entry.last_failed_at) <= window);
+
+    let attempts = attempts_guard
+        .get(&remote_ip)
+        .map(|entry| entry.attempts)
+        .unwrap_or(0);
+    if attempts >= PIN_MAX_ATTEMPTS {
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many attempts.".to_string(),
+        ));
+    }
+
+    if request_pin != Some(configured_pin.as_str()) {
+        if request_pin.map(|v| !v.is_empty()).unwrap_or(false) {
+            let entry = attempts_guard.entry(remote_ip).or_insert(PinAttemptInfo {
+                attempts: 0,
+                last_failed_at: now,
+            });
+            entry.attempts = entry.attempts.saturating_add(1);
+            entry.last_failed_at = now;
+            if entry.attempts >= PIN_MAX_ATTEMPTS {
+                return Err((
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "Too many attempts.".to_string(),
+                ));
+            }
+        }
+        return Err((StatusCode::UNAUTHORIZED, "Invalid pin.".to_string()));
+    }
+
+    attempts_guard.remove(&remote_ip);
+    Ok(())
 }
 
 fn parse_query(query: &str) -> HashMap<String, String> {

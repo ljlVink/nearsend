@@ -20,6 +20,7 @@ pub struct AppRoot {
     progress_entity: Entity<ProgressPage>,
     selected_files_entity: Entity<SelectedFilesPage>,
     receive_incoming_entity: Entity<ReceiveIncomingPage>,
+    incoming_event_listener_started: bool,
 }
 
 impl AppRoot {
@@ -34,8 +35,8 @@ impl AppRoot {
         let receive_inbox_state = cx.new(|_| ReceiveInboxState::default());
         let home_entity = cx.new(|_| {
             HomePage::new(
-                app_state,
-                device_state,
+                app_state.clone(),
+                device_state.clone(),
                 transfer_state.clone(),
                 send_selection_state.clone(),
                 receive_inbox_state.clone(),
@@ -49,20 +50,37 @@ impl AppRoot {
             )
         });
         let selected_files_entity =
-            cx.new(|_| SelectedFilesPage::new(send_selection_state.clone()));
-        let receive_incoming_entity = cx.new(|_| ReceiveIncomingPage::new(receive_inbox_state));
+            cx.new(|_| SelectedFilesPage::new(app_state.clone(), send_selection_state.clone()));
+        let receive_incoming_entity =
+            cx.new(|_| ReceiveIncomingPage::new(app_state.clone(), receive_inbox_state));
         Self {
             home_entity,
             history_entity,
             progress_entity,
             selected_files_entity,
             receive_incoming_entity,
+            incoming_event_listener_started: false,
         }
     }
 }
 
 impl gpui::Render for AppRoot {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if !self.incoming_event_listener_started {
+            self.incoming_event_listener_started = true;
+            cx.spawn(async move |this, cx| loop {
+                crate::core::receive_events::wait_for_incoming_event().await;
+                if this.update(cx, |_this, cx| cx.notify()).is_err() {
+                    break;
+                }
+            })
+            .detach();
+        }
+
+        let _ = self.home_entity.update(cx, |home, cx| {
+            home.poll_incoming_events(window, cx);
+        });
+
         let sheet_layer = Root::render_sheet_layer(window, cx);
         let dialog_layer = Root::render_dialog_layer(window, cx);
         let notification_layer = Root::render_notification_layer(window, cx);

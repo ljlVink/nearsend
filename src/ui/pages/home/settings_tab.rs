@@ -163,9 +163,53 @@ pub fn render_settings_content(
     let server_port = app.settings_state.server_port;
     let network_filtered = app.settings_state.network_filtered;
 
-    // "常规" 和 "接收" 能力暂未支持，先在设置页隐藏。
-
     // "发送" 能力暂未支持，先在设置页隐藏。
+
+    // -- Receive section --
+    let require_pin = app.settings_state.require_pin;
+    let masked_pin = if app.settings_state.receive_pin.is_empty() {
+        "未设置".to_string()
+    } else {
+        "*".repeat(app.settings_state.receive_pin.chars().count().min(12))
+    };
+    let r1 = div()
+        .pb(px(15.))
+        .child(
+            h_flex()
+                .items_center()
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(cx.theme().foreground)
+                        .flex_1()
+                        .child("接收需要 PIN"),
+                )
+                .child(
+                    div()
+                        .id("toggle-require-pin")
+                        .cursor_pointer()
+                        .on_click(cx.listener(|this, _ev, _window, cx| {
+                            this.settings_state.require_pin = !this.settings_state.require_pin;
+                            this.sync_server_config_to_runtime(cx);
+                        }))
+                        .child(Switch::new(require_pin)),
+                ),
+        )
+        .into_any_element();
+    let r2 = render_clickable_entry(
+        "接收 PIN",
+        &masked_pin,
+        "receive-pin-input",
+        cx,
+        |this, window, cx| {
+            this.open_receive_pin_dialog(window, cx);
+        },
+    );
+    let mut receive_children: Vec<AnyElement> = vec![r1];
+    if require_pin {
+        receive_children.push(r2);
+    }
+    let receive = render_settings_section("接收", cx, receive_children);
 
     // -- Network section --
     let server_label_text = format!("服务器{}", if server_running { "" } else { " (离线)" });
@@ -390,6 +434,7 @@ pub fn render_settings_content(
         .gap(spacing::LG);
 
     content = content
+        .child(receive)
         .child(network)
         .child(other)
         .child(advanced_toggle)

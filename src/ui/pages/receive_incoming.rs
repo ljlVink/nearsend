@@ -1,18 +1,23 @@
-use crate::state::receive_inbox_state::ReceiveInboxState;
-use gpui::{div, hsla, prelude::*, px, ClipboardItem, Context, Entity, Window};
+use crate::state::{app_state::AppState, receive_inbox_state::ReceiveInboxState};
+use gpui::{div, hsla, prelude::*, px, Context, Entity, Window};
 use gpui_component::{
     button::{Button, ButtonCustomVariant, ButtonVariants as _},
     h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _, Size,
 };
 use gpui_router::RouterState;
+use std::collections::HashSet;
 
 pub struct ReceiveIncomingPage {
+    app_state: Entity<AppState>,
     inbox_state: Entity<ReceiveInboxState>,
 }
 
 impl ReceiveIncomingPage {
-    pub fn new(inbox_state: Entity<ReceiveInboxState>) -> Self {
-        Self { inbox_state }
+    pub fn new(app_state: Entity<AppState>, inbox_state: Entity<ReceiveInboxState>) -> Self {
+        Self {
+            app_state,
+            inbox_state,
+        }
     }
 }
 
@@ -51,6 +56,15 @@ impl gpui::Render for ReceiveIncomingPage {
             "等待接收内容".to_string()
         };
         let show_cancelled = session.as_ref().map(|s| s.cancelled).unwrap_or(false);
+        let show_waiting_actions = session
+            .as_ref()
+            .map(|s| !s.completed && !s.cancelled && !s.is_message_only)
+            .unwrap_or(false);
+        let selected_file_ids: HashSet<String> = session
+            .as_ref()
+            .map(|s| s.selected_file_ids.iter().cloned().collect())
+            .unwrap_or_default();
+        let active_session_id = session.as_ref().map(|s| s.session_id.clone());
         let close_button_variant = ButtonCustomVariant::new(cx)
             .color(cx.theme().danger.opacity(0.92))
             .foreground(hsla(0.0, 0.0, 1.0, 1.0))
@@ -158,15 +172,69 @@ impl gpui::Render for ReceiveIncomingPage {
                                         .child(v_flex().gap(px(8.)).children(
                                             session.clone().into_iter().flat_map(|s| {
                                                 s.items.into_iter().map(|item| {
+                                                    let file_id = item.file_id.clone();
                                                     let icon =
                                                         if item.file_type.starts_with("text/") {
                                                             "icons/book-open.svg"
                                                         } else {
                                                             "icons/file.svg"
                                                         };
-                                                    h_flex()
-                                                        .items_center()
-                                                        .gap(px(8.))
+                                                    let selected =
+                                                        selected_file_ids.contains(&item.file_id);
+                                                    Button::new(format!(
+                                                        "receive-file-item-{}",
+                                                        item.file_id
+                                                    ))
+                                                        .custom(
+                                                            ButtonCustomVariant::new(cx)
+                                                                .color(if selected {
+                                                                    cx.theme().primary.opacity(0.10)
+                                                                } else {
+                                                                    cx.theme().secondary
+                                                                })
+                                                                .foreground(cx.theme().foreground)
+                                                                .hover(if selected {
+                                                                    cx.theme().primary.opacity(0.15)
+                                                                } else {
+                                                                    cx.theme().secondary
+                                                                })
+                                                                .active(if selected {
+                                                                    cx.theme().primary.opacity(0.20)
+                                                                } else {
+                                                                    cx.theme().secondary
+                                                                }),
+                                                        )
+                                                        .w_full()
+                                                        .h(px(36.))
+                                                        .justify_start()
+                                                        .when(show_waiting_actions, |this| {
+                                                            this.on_click(cx.listener(
+                                                                move |this, _e, _window, cx| {
+                                                                    this.inbox_state.update(
+                                                                        cx,
+                                                                        |state, _| {
+                                                                            state.toggle_file_selected(&file_id);
+                                                                        },
+                                                                    );
+                                                                },
+                                                            ))
+                                                        })
+                                                        .child(
+                                                            Icon::default()
+                                                                .path(
+                                                                    if selected {
+                                                                        "icons/check.svg"
+                                                                    } else {
+                                                                        "icons/x.svg"
+                                                                    },
+                                                                )
+                                                                .with_size(Size::XSmall)
+                                                                .text_color(if selected {
+                                                                    cx.theme().primary
+                                                                } else {
+                                                                    cx.theme().muted_foreground
+                                                                }),
+                                                        )
                                                         .child(
                                                             Icon::default()
                                                                 .path(icon)
@@ -196,11 +264,24 @@ impl gpui::Render for ReceiveIncomingPage {
                                         .mt(px(8.))
                                         .child("复制")
                                         .on_click(cx.listener(
-                                            move |_this, _event, _window, cx| {
+                                            move |this, _event, _window, cx| {
                                                 if !content.is_empty() {
-                                                    cx.write_to_clipboard(
-                                                        ClipboardItem::new_string(content.clone()),
-                                                    );
+                                                    let tokio_handle =
+                                                        this.app_state.read(cx).tokio_handle.clone();
+                                                    let content_to_write = content.clone();
+                                                    tokio_handle.spawn(async move {
+                                                        if let Err(err) =
+                                                            crate::platform::clipboard::write_clipboard_text(
+                                                                content_to_write,
+                                                            )
+                                                            .await
+                                                        {
+                                                            log::error!(
+                                                                "write clipboard text failed: {}",
+                                                                err
+                                                            );
+                                                        }
+                                                    });
                                                 }
                                             },
                                         )),
@@ -216,6 +297,55 @@ impl gpui::Render for ReceiveIncomingPage {
                             }),
                     ),
             )
+            .when(show_waiting_actions, |this| {
+                let session_id = active_session_id.clone().unwrap_or_default();
+                let session_id_for_decline = session_id.clone();
+                let session_id_for_accept = session_id.clone();
+                let selected_ids_for_accept = session
+                    .as_ref()
+                    .map(|s| s.selected_file_ids.clone())
+                    .unwrap_or_default();
+                this.child(
+                    h_flex()
+                        .w_full()
+                        .justify_center()
+                        .gap(px(12.))
+                        .pb(px(10.))
+                        .child(
+                            Button::new("receive-incoming-decline")
+                                .outline()
+                                .h(px(40.))
+                                .px(px(18.))
+                                .rounded_md()
+                                .child("拒绝")
+                                .on_click(cx.listener(move |this, _e, window, cx| {
+                                    crate::core::receive_events::submit_incoming_decision(
+                                        session_id_for_decline.clone(),
+                                        crate::core::receive_events::IncomingTransferDecision::Decline,
+                                    );
+                                    this.inbox_state.update(cx, |s, _| s.clear());
+                                    RouterState::global_mut(cx).location.pathname = "/".into();
+                                    window.refresh();
+                                })),
+                        )
+                        .child(
+                            Button::new("receive-incoming-accept")
+                                .primary()
+                                .h(px(40.))
+                                .px(px(18.))
+                                .rounded_md()
+                                .child("接受")
+                                .on_click(cx.listener(move |_this, _e, _window, _cx| {
+                                    crate::core::receive_events::submit_incoming_decision(
+                                        session_id_for_accept.clone(),
+                                        crate::core::receive_events::IncomingTransferDecision::AcceptSelected(
+                                            selected_ids_for_accept.clone(),
+                                        ),
+                                    );
+                                })),
+                        ),
+                )
+            })
             .child(
                 h_flex().w_full().justify_center().pb(px(26.)).child(
                     Button::new("receive-incoming-close")
@@ -240,7 +370,15 @@ impl gpui::Render for ReceiveIncomingPage {
                                         .child("关闭"),
                                 ),
                         )
-                        .on_click(cx.listener(|this, _e, window, cx| {
+                        .on_click(cx.listener(move |this, _e, window, cx| {
+                            if let Some(active) = this.inbox_state.read(cx).active.as_ref() {
+                                if !active.completed && !active.cancelled && !active.is_message_only {
+                                    crate::core::receive_events::submit_incoming_decision(
+                                        active.session_id.clone(),
+                                        crate::core::receive_events::IncomingTransferDecision::Decline,
+                                    );
+                                }
+                            }
                             this.inbox_state.update(cx, |s, _| s.clear());
                             RouterState::global_mut(cx).location.pathname = "/".into();
                             window.refresh();

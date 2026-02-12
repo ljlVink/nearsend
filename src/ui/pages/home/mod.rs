@@ -9,7 +9,9 @@ mod settings_state;
 mod settings_tab;
 
 pub use receive_state::{IncomingTransferRequest, QuickSaveMode, ReceivePageState};
-pub use send_state::{SelectedFileInfo, SendContentType, SendMode, SendPageState};
+pub use send_state::{
+    SelectedFileInfo, SendContentType, SendMode, SendPageState, SendSessionStatus,
+};
 pub use settings_state::{ColorMode, SettingsPageState, ThemeMode};
 
 use crate::state::{
@@ -26,7 +28,11 @@ use gpui_component::{
 use gpui_router::RouterState;
 use localsend::http::state::ClientInfo;
 use localsend::model::discovery::DeviceType;
+use std::collections::BTreeSet;
+use std::net::Ipv4Addr;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tokio::sync::oneshot;
 
 /// Tab identifier for home page bottom navigation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -113,6 +119,24 @@ enum AddressInputMode {
     IpAddress,
 }
 
+enum ClipboardPickOutcome {
+    Success(String),
+    PermissionDenied,
+    ReadFailed,
+}
+
+enum SendUiMessage {
+    Notice(String),
+    UpdateStatus {
+        status: SendSessionStatus,
+        message: Option<String>,
+    },
+    RequestPin {
+        show_invalid_pin: bool,
+        responder: oneshot::Sender<Option<String>>,
+    },
+}
+
 impl gpui::Render for HomePage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.poll_incoming_events(window, cx);
@@ -152,11 +176,12 @@ impl gpui::Render for HomePage {
 }
 
 impl HomePage {
-    fn poll_incoming_events(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn poll_incoming_events(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let events = crate::core::receive_events::drain_incoming_events();
         if events.is_empty() {
             return;
         }
+        log::info!("poll_incoming_events: received {} events", events.len());
 
         let mut should_open_receive_page = false;
         let settings_quick_save = self.settings_state.quick_save;
@@ -167,6 +192,7 @@ impl HomePage {
             for event in events {
                 match &event {
                     crate::core::receive_events::IncomingTransferEvent::Prepared {
+                        session_id,
                         sender_fingerprint,
                         files,
                         ..
@@ -174,13 +200,25 @@ impl HomePage {
                         let is_message_only = files.len() == 1
                             && files
                                 .first()
-                                .map(|f| f.file_type.starts_with("text/"))
+                                .map(|f| f.file_type.starts_with("text/") && f.preview.is_some())
                                 .unwrap_or(false);
                         let is_favorite = favorite_tokens.contains(sender_fingerprint);
+                        if is_message_only {
+                            crate::core::receive_events::submit_incoming_decision(
+                                session_id.clone(),
+                                crate::core::receive_events::IncomingTransferDecision::AcceptAll,
+                            );
+                            should_open_receive_page = true;
+                        }
                         let quick_save = !is_message_only
                             && (settings_quick_save
                                 || (settings_quick_save_favorites && is_favorite));
-                        if !quick_save {
+                        if quick_save {
+                            crate::core::receive_events::submit_incoming_decision(
+                                session_id.clone(),
+                                crate::core::receive_events::IncomingTransferDecision::AcceptAll,
+                            );
+                        } else {
                             should_open_receive_page = true;
                         }
                     }
@@ -202,6 +240,7 @@ impl HomePage {
         });
 
         if should_open_receive_page {
+            log::info!("poll_incoming_events: navigate to /receive/incoming");
             RouterState::global_mut(cx).location.pathname = "/receive/incoming".into();
             window.refresh();
         }
@@ -225,9 +264,10 @@ impl HomePage {
 
     /// Start the HTTP server and discovery service.
     fn start_services(&mut self, cx: &mut Context<Self>) {
-        if let Some(ip) = detect_primary_ipv4() {
-            self.receive_state.server_ips = vec![ip];
-        }
+        let local_ips = detect_local_ipv4s();
+        log::info!("near-send local ipv4 candidates: {:?}", local_ips);
+        self.receive_state.server_ips = local_ips.clone();
+        self.send_state.local_ips = local_ips;
 
         let alias = self.receive_state.server_alias.clone();
         let token = uuid::Uuid::new_v4().to_string();
@@ -314,6 +354,13 @@ impl HomePage {
     pub(super) fn sync_server_config_to_runtime(&mut self, cx: &mut Context<Self>) {
         self.receive_state.server_alias = self.settings_state.server_alias.clone();
         self.receive_state.server_port = self.settings_state.server_port;
+        let require_pin = self.settings_state.require_pin;
+        let receive_pin = self.settings_state.receive_pin.clone();
+        let server_entity = self.app_state.read(cx).server.clone();
+        let tokio_handle = self.app_state.read(cx).tokio_handle.clone();
+        server_entity.update(cx, |server, _| {
+            server.set_receive_pin_config(require_pin, receive_pin, &tokio_handle);
+        });
 
         let alias = self.settings_state.server_alias.clone();
         let app_state_entity = self.app_state.clone();
@@ -538,10 +585,79 @@ impl HomePage {
             SendContentType::Folder => {
                 self.open_simple_notice_dialog("文件夹选择即将接入。", window, cx)
             }
-            SendContentType::Media => {
-                self.open_simple_notice_dialog("剪贴板发送即将接入。", window, cx)
-            }
+            SendContentType::Media => self.handle_pick_clipboard(window, cx),
         }
+    }
+
+    fn handle_pick_clipboard(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let window_handle = window.window_handle();
+        let home_entity = cx.entity();
+        let tokio_handle = self.app_state.read(cx).tokio_handle.clone();
+
+        let join = tokio_handle.spawn(async move {
+            let permission_granted =
+                match crate::platform::clipboard::ensure_read_clipboard_permission().await {
+                    Ok(granted) => granted,
+                    Err(err) => {
+                        log::error!("ensure read clipboard permission failed: {}", err);
+                        false
+                    }
+                };
+            if !permission_granted {
+                return ClipboardPickOutcome::PermissionDenied;
+            }
+
+            let text = match crate::platform::clipboard::read_clipboard_text().await {
+                Ok(text) => text,
+                Err(err) => {
+                    log::error!("read clipboard text failed: {}", err);
+                    return ClipboardPickOutcome::ReadFailed;
+                }
+            };
+            if text.is_empty() {
+                return ClipboardPickOutcome::Success(String::new());
+            }
+
+            ClipboardPickOutcome::Success(text)
+        });
+
+        cx.spawn(async move |_this, cx| {
+            let outcome = match join.await {
+                Ok(outcome) => outcome,
+                Err(err) => {
+                    log::error!("clipboard task failed: {}", err);
+                    ClipboardPickOutcome::ReadFailed
+                }
+            };
+
+            match outcome {
+                ClipboardPickOutcome::Success(text) => {
+                    if text.is_empty() {
+                        return;
+                    }
+                    let _ = home_entity.update(cx, |this, cx| {
+                        this.send_selection_state.update(cx, |state, _| {
+                            state.add_text(text.clone());
+                        });
+                    });
+                }
+                ClipboardPickOutcome::PermissionDenied => {
+                    let _ = window_handle.update(cx, |_, window, cx| {
+                        let _ = home_entity.update(cx, |this, cx| {
+                            this.open_simple_notice_dialog("无权限。请开启权限。", window, cx);
+                        });
+                    });
+                }
+                ClipboardPickOutcome::ReadFailed => {
+                    let _ = window_handle.update(cx, |_, window, cx| {
+                        let _ = home_entity.update(cx, |this, cx| {
+                            this.open_simple_notice_dialog("读取剪贴板失败。", window, cx);
+                        });
+                    });
+                }
+            }
+        })
+        .detach();
     }
 
     pub(super) fn open_add_content_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -833,6 +949,86 @@ impl HomePage {
         });
     }
 
+    pub(super) fn open_send_pin_dialog(
+        &mut self,
+        show_invalid_pin: bool,
+        responder: oneshot::Sender<Option<String>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let input_state = cx.new(|cx| InputState::new(window, cx).placeholder("输入接收端 PIN"));
+        let responder = Arc::new(Mutex::new(Some(responder)));
+        let home_entity = cx.entity();
+
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let input_for_ok = input_state.clone();
+            let responder_for_ok = responder.clone();
+            let responder_for_cancel = responder.clone();
+            let home_for_ok = home_entity.clone();
+            let variant = ButtonCustomVariant::new(_cx)
+                .color(_cx.theme().secondary)
+                .foreground(_cx.theme().foreground)
+                .hover(_cx.theme().secondary)
+                .active(_cx.theme().secondary);
+            dialog
+                .title(if show_invalid_pin {
+                    "PIN 错误，请重试"
+                } else {
+                    "请输入接收端 PIN"
+                })
+                .overlay(true)
+                .w(px(320.))
+                .child(
+                    div()
+                        .w_full()
+                        .child(Input::new(&input_state).appearance(true).large()),
+                )
+                .child(
+                    h_flex()
+                        .w_full()
+                        .justify_end()
+                        .gap(px(8.))
+                        .child(
+                            Button::new("send-pin-cancel")
+                                .custom(variant.clone())
+                                .on_click(move |_event, window, cx| {
+                                    if let Ok(mut guard) = responder_for_cancel.lock() {
+                                        if let Some(tx) = guard.take() {
+                                            let _ = tx.send(None);
+                                        }
+                                    }
+                                    window.close_dialog(cx);
+                                })
+                                .child("取消"),
+                        )
+                        .child(
+                            Button::new("send-pin-confirm")
+                                .custom(variant)
+                                .on_click(move |_event, window, cx| {
+                                    let pin = input_for_ok.read(cx).value().trim().to_string();
+                                    if pin.is_empty() {
+                                        home_for_ok.update(cx, |this, cx| {
+                                            this.open_simple_notice_dialog(
+                                                "PIN 不能为空",
+                                                window,
+                                                cx,
+                                            );
+                                        });
+                                        return;
+                                    }
+                                    if let Ok(mut guard) = responder_for_ok.lock() {
+                                        if let Some(tx) = guard.take() {
+                                            let _ = tx.send(Some(pin));
+                                        }
+                                    }
+                                    window.close_dialog(cx);
+                                })
+                                .child("确认"),
+                        ),
+                )
+        });
+    }
+
     pub(super) fn open_server_alias_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let input_state = cx.new(|cx| InputState::new(window, cx).placeholder("输入设备别名"));
         let current_alias = self.settings_state.server_alias.clone();
@@ -920,6 +1116,50 @@ impl HomePage {
                     }
                     home_for_ok.update(cx, |this, cx| {
                         this.settings_state.server_port = port;
+                        this.sync_server_config_to_runtime(cx);
+                    });
+                    true
+                })
+        });
+    }
+
+    pub(super) fn open_receive_pin_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let input_state = cx.new(|cx| InputState::new(window, cx).placeholder("输入接收 PIN"));
+        let current_pin = self.settings_state.receive_pin.clone();
+        input_state.update(cx, |state, cx| {
+            state.set_value(current_pin, window, cx);
+        });
+        let home_entity = cx.entity();
+
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let input_for_ok = input_state.clone();
+            let home_for_ok = home_entity.clone();
+
+            dialog
+                .title("设置接收 PIN")
+                .overlay(true)
+                .w(px(340.))
+                .child(
+                    div()
+                        .w_full()
+                        .child(Input::new(&input_state).appearance(true).large()),
+                )
+                .confirm()
+                .button_props(
+                    gpui_component::dialog::DialogButtonProps::default()
+                        .ok_text("保存")
+                        .cancel_text("取消"),
+                )
+                .on_ok(move |_event, window, cx| {
+                    let pin = input_for_ok.read(cx).value().trim().to_string();
+                    if pin.is_empty() {
+                        home_for_ok.update(cx, |this, cx| {
+                            this.open_simple_notice_dialog("PIN 不能为空", window, cx);
+                        });
+                        return false;
+                    }
+                    home_for_ok.update(cx, |this, cx| {
+                        this.settings_state.receive_pin = pin.clone();
                         this.sync_server_config_to_runtime(cx);
                     });
                     true
@@ -1108,11 +1348,11 @@ impl HomePage {
                         let port = this.settings_state.server_port;
                         match mode_for_ok {
                             AddressInputMode::IpAddress => {
-                                this.execute_send(raw.clone(), port, cx);
+                                this.execute_send(raw.clone(), port, window, cx);
                             }
                             AddressInputMode::Label => {
                                 if let Some(ip) = this.resolve_labeled_ip(&raw) {
-                                    this.execute_send(ip, port, cx);
+                                    this.execute_send(ip, port, window, cx);
                                 } else {
                                     this.open_simple_notice_dialog(
                                         "无法根据标签推导可用 IP，请切换到“IP 地址”模式直接输入。",
@@ -1137,14 +1377,14 @@ impl HomePage {
     }
 
     fn local_ip_prefixes(&self) -> Vec<String> {
-        let mut prefixes = std::collections::BTreeSet::new();
+        let mut prefixes = BTreeSet::new();
         for ip in &self.send_state.local_ips {
             if let Some(p) = ipv4_prefix(ip) {
                 prefixes.insert(p);
             }
         }
-        if let Some(ip) = detect_primary_ipv4() {
-            if let Some(p) = ipv4_prefix(&ip) {
+        if let Some(ip) = detect_primary_route_ipv4() {
+            if let Some(p) = ipv4_prefix(&ip.to_string()) {
                 prefixes.insert(p);
             }
         }
@@ -1156,7 +1396,13 @@ impl HomePage {
     }
 
     /// Execute the send flow: build entries from selected_files, spawn thread with tokio runtime.
-    pub(super) fn execute_send(&mut self, ip: String, port: u16, cx: &mut Context<Self>) {
+    pub(super) fn execute_send(
+        &mut self,
+        ip: String,
+        port: u16,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         use localsend::http::dto::{ProtocolType, RegisterDto};
 
         #[derive(Clone)]
@@ -1198,6 +1444,9 @@ impl HomePage {
             log::warn!("No files selected to send");
             return;
         }
+        self.send_state.pending_send = true;
+        self.send_state.session_status = SendSessionStatus::Preparing;
+        self.send_state.session_status_text = Some("正在准备发送...".to_string());
 
         // Build RegisterDto from our client info
         let client_info = self.app_state.read(cx).client_info.clone();
@@ -1220,7 +1469,9 @@ impl HomePage {
         // Grab cert so we can create a fresh LsHttpClient in the transfer task
         let cert = self.app_state.read(cx).cert.clone();
         let tokio_handle = self.app_state.read(cx).tokio_handle.clone();
-
+        let (notify_tx, mut notify_rx) = tokio::sync::mpsc::unbounded_channel::<SendUiMessage>();
+        let window_handle = window.window_handle();
+        let home_entity = cx.entity();
         log::info!(
             "Starting send to {}:{} with {} files",
             ip,
@@ -1485,21 +1736,126 @@ impl HomePage {
                     "{}://{}:{}/api/localsend/v2/prepare-upload",
                     scheme, ip, port
                 );
-                match v2_http_client
-                    .post(&prepare_url)
-                    .json(&v2_payload)
-                    .send()
-                    .await
-                {
-                    Ok(res) => {
-                        if res.status() == reqwest::StatusCode::NO_CONTENT {
-                            // LocalSend message-only transfer: accepted without binary upload.
-                            v2_selected_scheme = Some(scheme);
-                            v2_no_upload_success = true;
+                let mut pin: Option<String> = None;
+                let mut pin_first_attempt = true;
+                loop {
+                    let mut req = v2_http_client.post(&prepare_url).json(&v2_payload);
+                    if let Some(pin_value) = pin.as_ref() {
+                        req = req.query(&[("pin", pin_value)]);
+                    }
+                    match req.send().await {
+                        Ok(res) => {
+                            if res.status() == reqwest::StatusCode::NO_CONTENT {
+                                // LocalSend message-only transfer: accepted without binary upload.
+                                v2_selected_scheme = Some(scheme);
+                                v2_no_upload_success = true;
+                                break;
+                            }
+                            if !res.status().is_success() {
+                                if res.status() == reqwest::StatusCode::UNAUTHORIZED {
+                                    let _ = notify_tx.send(SendUiMessage::UpdateStatus {
+                                        status: SendSessionStatus::PinRequired,
+                                        message: Some("需要输入接收端 PIN".to_string()),
+                                    });
+                                    let (pin_tx, pin_rx) = oneshot::channel::<Option<String>>();
+                                    let _ = notify_tx.send(SendUiMessage::RequestPin {
+                                        show_invalid_pin: !pin_first_attempt,
+                                        responder: pin_tx,
+                                    });
+                                    pin_first_attempt = false;
+                                    pin = match pin_rx.await {
+                                        Ok(value) => value,
+                                        Err(_) => None,
+                                    };
+                                    if pin.is_none() {
+                                        let _ = notify_tx.send(SendUiMessage::UpdateStatus {
+                                            status: SendSessionStatus::CancelledByUser,
+                                            message: Some("已取消输入 PIN".to_string()),
+                                        });
+                                        let _ = notify_tx.send(SendUiMessage::Notice(
+                                            "已取消输入 PIN。".to_string(),
+                                        ));
+                                        return;
+                                    }
+                                    continue;
+                                }
+                                if matches!(
+                                    res.status(),
+                                    reqwest::StatusCode::FORBIDDEN
+                                        | reqwest::StatusCode::CONFLICT
+                                        | reqwest::StatusCode::TOO_MANY_REQUESTS
+                                ) {
+                                    log::warn!(
+                                        "v2 prepare-upload terminal status via {} for {}:{}: {}",
+                                        scheme,
+                                        ip,
+                                        port,
+                                        res.status()
+                                    );
+                                    let _ =
+                                        notify_tx.send(SendUiMessage::Notice(match res.status() {
+                                            reqwest::StatusCode::FORBIDDEN => {
+                                                "对方已拒绝本次传输请求。".to_string()
+                                            }
+                                            reqwest::StatusCode::CONFLICT => {
+                                                "对方当前正忙，请稍后重试。".to_string()
+                                            }
+                                            reqwest::StatusCode::TOO_MANY_REQUESTS => {
+                                                "PIN 尝试次数过多，请稍后再试。".to_string()
+                                            }
+                                            _ => "发送失败，请稍后重试。".to_string(),
+                                        }));
+                                    let _ = notify_tx.send(SendUiMessage::UpdateStatus {
+                                        status: match res.status() {
+                                            reqwest::StatusCode::FORBIDDEN => {
+                                                SendSessionStatus::Declined
+                                            }
+                                            reqwest::StatusCode::CONFLICT => {
+                                                SendSessionStatus::RecipientBusy
+                                            }
+                                            reqwest::StatusCode::TOO_MANY_REQUESTS => {
+                                                SendSessionStatus::TooManyAttempts
+                                            }
+                                            _ => SendSessionStatus::Failed,
+                                        },
+                                        message: Some(format!("发送失败（{}）", res.status())),
+                                    });
+                                    return;
+                                }
+                                let msg = format!("status={}", res.status());
+                                log::warn!(
+                                    "v2 prepare-upload failed via {} for {}:{}: {}",
+                                    scheme,
+                                    ip,
+                                    port,
+                                    msg
+                                );
+                                v2_last_err = Some(msg);
+                                break;
+                            }
+                            match res.json::<V2PrepareUploadResponseDto>().await {
+                                Ok(parsed) => {
+                                    v2_selected_scheme = Some(scheme);
+                                    v2_response = Some(parsed);
+                                    break;
+                                }
+                                Err(e) => {
+                                    let msg =
+                                        format!("decode prepare-upload response failed: {}", e);
+                                    log::warn!(
+                                        "v2 prepare-upload decode failed via {} for {}:{}: {}",
+                                        scheme,
+                                        ip,
+                                        port,
+                                        msg
+                                    );
+                                    v2_last_err = Some(msg);
+                                }
+                            }
                             break;
                         }
-                        if !res.status().is_success() {
-                            let msg = format!("status={}", res.status());
+                        Err(e) => {
+                            let msg = e.to_string();
                             log::warn!(
                                 "v2 prepare-upload failed via {} for {}:{}: {}",
                                 scheme,
@@ -1508,38 +1864,12 @@ impl HomePage {
                                 msg
                             );
                             v2_last_err = Some(msg);
-                            continue;
-                        }
-                        match res.json::<V2PrepareUploadResponseDto>().await {
-                            Ok(parsed) => {
-                                v2_selected_scheme = Some(scheme);
-                                v2_response = Some(parsed);
-                                break;
-                            }
-                            Err(e) => {
-                                let msg = format!("decode prepare-upload response failed: {}", e);
-                                log::warn!(
-                                    "v2 prepare-upload decode failed via {} for {}:{}: {}",
-                                    scheme,
-                                    ip,
-                                    port,
-                                    msg
-                                );
-                                v2_last_err = Some(msg);
-                            }
+                            break;
                         }
                     }
-                    Err(e) => {
-                        let msg = e.to_string();
-                        log::warn!(
-                            "v2 prepare-upload failed via {} for {}:{}: {}",
-                            scheme,
-                            ip,
-                            port,
-                            msg
-                        );
-                        v2_last_err = Some(msg);
-                    }
+                }
+                if v2_no_upload_success || v2_response.is_some() {
+                    break;
                 }
             }
             if v2_no_upload_success {
@@ -1547,10 +1877,18 @@ impl HomePage {
                     remember_peer(peer);
                 }
                 log::info!("v2 message transfer complete (no upload required)");
+                let _ = notify_tx.send(SendUiMessage::UpdateStatus {
+                    status: SendSessionStatus::Completed,
+                    message: Some("发送完成".to_string()),
+                });
                 return;
             }
 
             if let (Some(scheme), Some(v2_response)) = (v2_selected_scheme, v2_response) {
+                let _ = notify_tx.send(SendUiMessage::UpdateStatus {
+                    status: SendSessionStatus::Sending,
+                    message: Some("正在发送...".to_string()),
+                });
                 log::info!(
                     "v2 prepare-upload succeeded for {}:{} over {}, session={}",
                     ip,
@@ -1564,6 +1902,10 @@ impl HomePage {
                         "v2 transfer complete with empty file selection, session_id={}",
                         v2_response.session_id
                     );
+                    let _ = notify_tx.send(SendUiMessage::UpdateStatus {
+                        status: SendSessionStatus::Completed,
+                        message: Some("发送完成".to_string()),
+                    });
                     return;
                 }
                 for (file_id, token) in &v2_response.files {
@@ -1608,9 +1950,24 @@ impl HomePage {
                                     file_id,
                                     res.status()
                                 );
+                                let _ = notify_tx.send(SendUiMessage::Notice(format!(
+                                    "发送失败：文件上传状态异常（{}）。",
+                                    res.status()
+                                )));
+                                let _ = notify_tx.send(SendUiMessage::UpdateStatus {
+                                    status: SendSessionStatus::Failed,
+                                    message: Some(format!("发送失败（上传状态 {}）", res.status())),
+                                });
                             }
                             Err(e) => {
                                 log::error!("v2 upload failed for file_id={}: {}", file_id, e);
+                                let _ = notify_tx.send(SendUiMessage::Notice(
+                                    "发送失败：上传过程中发生网络错误。".to_string(),
+                                ));
+                                let _ = notify_tx.send(SendUiMessage::UpdateStatus {
+                                    status: SendSessionStatus::Failed,
+                                    message: Some("发送失败（上传网络错误）".to_string()),
+                                });
                             }
                         }
                     }
@@ -1623,6 +1980,10 @@ impl HomePage {
                 if let Some(peer) = remembered_peer.clone() {
                     remember_peer(peer);
                 }
+                let _ = notify_tx.send(SendUiMessage::UpdateStatus {
+                    status: SendSessionStatus::Completed,
+                    message: Some("发送完成".to_string()),
+                });
                 return;
             } else {
                 log::warn!(
@@ -1639,6 +2000,13 @@ impl HomePage {
                 Some(c) => c,
                 None => {
                     log::error!("No TLS cert available, cannot create transfer client");
+                    let _ = notify_tx.send(SendUiMessage::UpdateStatus {
+                        status: SendSessionStatus::Failed,
+                        message: Some("发送失败（缺少证书）".to_string()),
+                    });
+                    let _ = notify_tx.send(SendUiMessage::Notice(
+                        "发送失败：本端证书不可用。".to_string(),
+                    ));
                     return;
                 }
             };
@@ -1649,6 +2017,13 @@ impl HomePage {
                 Ok(c) => c,
                 Err(e) => {
                     log::error!("Failed to create transfer client: {}", e);
+                    let _ = notify_tx.send(SendUiMessage::UpdateStatus {
+                        status: SendSessionStatus::Failed,
+                        message: Some("发送失败（初始化失败）".to_string()),
+                    });
+                    let _ = notify_tx.send(SendUiMessage::Notice(
+                        "发送失败：无法初始化传输客户端。".to_string(),
+                    ));
                     return;
                 }
             };
@@ -1702,11 +2077,42 @@ impl HomePage {
             let mut selected_protocol: Option<ProtocolType> = None;
             let mut response: Option<localsend::http::dto::PrepareUploadResponseDto> = None;
             let mut last_err: Option<String> = None;
+            let legacy_http_client = {
+                let identity = {
+                    let pem = &[
+                        cert.cert_pem.as_bytes(),
+                        "\n".as_bytes(),
+                        cert.private_key_pem.as_bytes(),
+                    ]
+                    .concat();
+                    reqwest::Identity::from_pem(pem)
+                };
+                match identity.and_then(|id| {
+                    reqwest::Client::builder()
+                        .use_rustls_tls()
+                        .danger_accept_invalid_certs(true)
+                        .identity(id)
+                        .build()
+                }) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        log::error!("failed to create legacy reqwest client: {}", e);
+                        let _ = notify_tx.send(SendUiMessage::Notice(
+                            "发送失败：无法初始化网络客户端。".to_string(),
+                        ));
+                        let _ = notify_tx.send(SendUiMessage::UpdateStatus {
+                            status: SendSessionStatus::Failed,
+                            message: Some("发送失败（客户端初始化失败）".to_string()),
+                        });
+                        return;
+                    }
+                }
+            };
 
             for protocol in protocols {
                 log::info!("Trying protocol={} for {}:{}", protocol.as_str(), ip, port);
 
-                let public_key = match client
+                let _public_key = match client
                     .register(&protocol, &ip, port, payload.info.clone())
                     .await
                 {
@@ -1738,26 +2144,146 @@ impl HomePage {
                     }
                 };
 
-                match client
-                    .prepare_upload(&protocol, &ip, port, public_key, payload.clone())
-                    .await
-                {
-                    Ok(r) => {
-                        selected_protocol = Some(protocol);
-                        response = Some(r);
-                        break;
+                let prepare_url = format!(
+                    "{}://{}:{}/api/localsend/v3/prepare-upload",
+                    protocol.as_str(),
+                    ip,
+                    port
+                );
+                let mut pin: Option<String> = None;
+                let mut pin_first_attempt = true;
+                loop {
+                    let mut req = legacy_http_client.post(&prepare_url).json(&payload);
+                    if let Some(pin_value) = pin.as_ref() {
+                        req = req.query(&[("pin", pin_value)]);
                     }
-                    Err(e) => {
-                        let msg = e.to_string();
-                        log::warn!(
-                            "prepare-upload failed via {} for {}:{}: {}",
-                            protocol.as_str(),
-                            ip,
-                            port,
-                            msg
-                        );
-                        last_err = Some(msg);
+                    match req.send().await {
+                        Ok(res) => {
+                            if !res.status().is_success() {
+                                if res.status() == reqwest::StatusCode::UNAUTHORIZED {
+                                    let _ = notify_tx.send(SendUiMessage::UpdateStatus {
+                                        status: SendSessionStatus::PinRequired,
+                                        message: Some("需要输入接收端 PIN".to_string()),
+                                    });
+                                    let (pin_tx, pin_rx) = oneshot::channel::<Option<String>>();
+                                    let _ = notify_tx.send(SendUiMessage::RequestPin {
+                                        show_invalid_pin: !pin_first_attempt,
+                                        responder: pin_tx,
+                                    });
+                                    pin_first_attempt = false;
+                                    pin = match pin_rx.await {
+                                        Ok(value) => value,
+                                        Err(_) => None,
+                                    };
+                                    if pin.is_none() {
+                                        let _ = notify_tx.send(SendUiMessage::UpdateStatus {
+                                            status: SendSessionStatus::CancelledByUser,
+                                            message: Some("已取消输入 PIN".to_string()),
+                                        });
+                                        let _ = notify_tx.send(SendUiMessage::Notice(
+                                            "已取消输入 PIN。".to_string(),
+                                        ));
+                                        return;
+                                    }
+                                    continue;
+                                }
+
+                                if matches!(
+                                    res.status(),
+                                    reqwest::StatusCode::FORBIDDEN
+                                        | reqwest::StatusCode::CONFLICT
+                                        | reqwest::StatusCode::TOO_MANY_REQUESTS
+                                ) {
+                                    let status = res.status();
+                                    log::warn!(
+                                        "prepare-upload terminal status via {} for {}:{}: {}",
+                                        protocol.as_str(),
+                                        ip,
+                                        port,
+                                        status
+                                    );
+                                    let _ = notify_tx.send(SendUiMessage::Notice(match status {
+                                        reqwest::StatusCode::FORBIDDEN => {
+                                            "对方已拒绝本次传输请求。".to_string()
+                                        }
+                                        reqwest::StatusCode::CONFLICT => {
+                                            "对方当前正忙，请稍后重试。".to_string()
+                                        }
+                                        reqwest::StatusCode::TOO_MANY_REQUESTS => {
+                                            "PIN 尝试次数过多，请稍后再试。".to_string()
+                                        }
+                                        _ => "发送失败，请稍后重试。".to_string(),
+                                    }));
+                                    let _ = notify_tx.send(SendUiMessage::UpdateStatus {
+                                        status: match status {
+                                            reqwest::StatusCode::FORBIDDEN => {
+                                                SendSessionStatus::Declined
+                                            }
+                                            reqwest::StatusCode::CONFLICT => {
+                                                SendSessionStatus::RecipientBusy
+                                            }
+                                            reqwest::StatusCode::TOO_MANY_REQUESTS => {
+                                                SendSessionStatus::TooManyAttempts
+                                            }
+                                            _ => SendSessionStatus::Failed,
+                                        },
+                                        message: Some(format!("发送失败（{}）", status)),
+                                    });
+                                    return;
+                                }
+
+                                let msg = format!("status={}", res.status());
+                                log::warn!(
+                                    "prepare-upload failed via {} for {}:{}: {}",
+                                    protocol.as_str(),
+                                    ip,
+                                    port,
+                                    msg
+                                );
+                                last_err = Some(msg);
+                                break;
+                            }
+
+                            match res
+                                .json::<localsend::http::dto::PrepareUploadResponseDto>()
+                                .await
+                            {
+                                Ok(parsed) => {
+                                    selected_protocol = Some(protocol);
+                                    response = Some(parsed);
+                                    break;
+                                }
+                                Err(e) => {
+                                    let msg =
+                                        format!("decode prepare-upload response failed: {}", e);
+                                    log::warn!(
+                                        "prepare-upload decode failed via {} for {}:{}: {}",
+                                        protocol.as_str(),
+                                        ip,
+                                        port,
+                                        msg
+                                    );
+                                    last_err = Some(msg);
+                                    break;
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            let msg = e.to_string();
+                            log::warn!(
+                                "prepare-upload failed via {} for {}:{}: {}",
+                                protocol.as_str(),
+                                ip,
+                                port,
+                                msg
+                            );
+                            last_err = Some(msg);
+                            break;
+                        }
                     }
+                }
+                if response.is_some() {
+                    break;
                 }
             }
 
@@ -1770,11 +2296,22 @@ impl HomePage {
                         port,
                         last_err.unwrap_or_else(|| "unknown".to_string())
                     );
+                    let _ = notify_tx.send(SendUiMessage::Notice(
+                        "发送失败，请检查对端状态后重试。".to_string(),
+                    ));
+                    let _ = notify_tx.send(SendUiMessage::UpdateStatus {
+                        status: SendSessionStatus::Failed,
+                        message: Some("发送失败（准备阶段）".to_string()),
+                    });
                     return;
                 }
             };
 
             let session_id = response.session_id.clone();
+            let _ = notify_tx.send(SendUiMessage::UpdateStatus {
+                status: SendSessionStatus::Sending,
+                message: Some("正在发送...".to_string()),
+            });
             log::info!(
                 "Got session_id: {}, protocol: {}, accepted files: {}",
                 session_id,
@@ -1820,6 +2357,13 @@ impl HomePage {
                         .await
                     {
                         log::error!("Upload failed for file_id={}: {}", file_id, e);
+                        let _ = notify_tx.send(SendUiMessage::Notice(
+                            "发送失败：上传过程中发生错误。".to_string(),
+                        ));
+                        let _ = notify_tx.send(SendUiMessage::UpdateStatus {
+                            status: SendSessionStatus::Failed,
+                            message: Some("发送失败（上传错误）".to_string()),
+                        });
                     }
                 }
             }
@@ -1828,7 +2372,52 @@ impl HomePage {
             if let Some(peer) = remembered_peer {
                 remember_peer(peer);
             }
+            let _ = notify_tx.send(SendUiMessage::UpdateStatus {
+                status: SendSessionStatus::Completed,
+                message: Some("发送完成".to_string()),
+            });
         });
+
+        cx.spawn(async move |_this, cx| {
+            while let Some(message) = notify_rx.recv().await {
+                match message {
+                    SendUiMessage::Notice(text) => {
+                        let _ = window_handle.update(cx, |_, window, cx| {
+                            let _ = home_entity.update(cx, |this, cx| {
+                                this.open_simple_notice_dialog(&text, window, cx);
+                            });
+                        });
+                    }
+                    SendUiMessage::UpdateStatus { status, message } => {
+                        let _ = home_entity.update(cx, |this, _| {
+                            this.send_state.session_status = status;
+                            this.send_state.session_status_text = message.clone();
+                            this.send_state.pending_send = !matches!(
+                                status,
+                                SendSessionStatus::Idle
+                                    | SendSessionStatus::Completed
+                                    | SendSessionStatus::Declined
+                                    | SendSessionStatus::RecipientBusy
+                                    | SendSessionStatus::TooManyAttempts
+                                    | SendSessionStatus::CancelledByUser
+                                    | SendSessionStatus::Failed
+                            );
+                        });
+                    }
+                    SendUiMessage::RequestPin {
+                        show_invalid_pin,
+                        responder,
+                    } => {
+                        let _ = window_handle.update(cx, |_, window, cx| {
+                            let _ = home_entity.update(cx, |this, cx| {
+                                this.open_send_pin_dialog(show_invalid_pin, responder, window, cx);
+                            });
+                        });
+                    }
+                }
+            }
+        })
+        .detach();
     }
 
     fn render_bottom_nav(&mut self, cx: &mut Context<Self>) -> AnyElement {
@@ -1896,7 +2485,7 @@ impl HomePage {
     }
 }
 
-fn detect_primary_ipv4() -> Option<String> {
+fn detect_primary_route_ipv4() -> Option<Ipv4Addr> {
     let probes = [("224.0.0.167", 53317), ("1.1.1.1", 80), ("8.8.8.8", 80)];
     for (host, port) in probes {
         let socket = match std::net::UdpSocket::bind("0.0.0.0:0") {
@@ -1911,10 +2500,64 @@ fn detect_primary_ipv4() -> Option<String> {
             Err(_) => continue,
         };
         if let std::net::IpAddr::V4(ip) = local.ip() {
-            return Some(ip.to_string());
+            return Some(ip);
         }
     }
     None
+}
+
+fn detect_local_ipv4s() -> Vec<String> {
+    let mut local_ips = Vec::<Ipv4Addr>::new();
+    if let Ok(interfaces) = if_addrs::get_if_addrs() {
+        for iface in interfaces {
+            if iface.is_loopback() {
+                continue;
+            }
+            if let if_addrs::IfAddr::V4(v4) = iface.addr {
+                if v4.ip.is_link_local() {
+                    continue;
+                }
+                local_ips.push(v4.ip);
+            }
+        }
+    }
+
+    let primary = detect_primary_route_ipv4();
+    rank_ipv4_addresses(&mut local_ips, primary);
+
+    let mut seen = BTreeSet::new();
+    let mut out = Vec::new();
+    for ip in local_ips {
+        let ip_text = ip.to_string();
+        if seen.insert(ip_text.clone()) {
+            out.push(ip_text);
+        }
+    }
+
+    if out.is_empty() {
+        if let Some(ip) = primary {
+            out.push(ip.to_string());
+        }
+    }
+
+    out
+}
+
+fn rank_ipv4_addresses(list: &mut Vec<Ipv4Addr>, primary: Option<Ipv4Addr>) {
+    list.sort_by(|a, b| {
+        let score = |ip: &Ipv4Addr| -> i32 {
+            if Some(*ip) == primary {
+                10
+            } else if ip.octets()[3] == 1 {
+                0
+            } else {
+                1
+            }
+        };
+        score(b)
+            .cmp(&score(a))
+            .then_with(|| a.octets().cmp(&b.octets()))
+    });
 }
 
 fn generate_random_alias() -> String {

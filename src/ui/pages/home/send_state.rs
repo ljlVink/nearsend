@@ -22,6 +22,20 @@ pub enum SendMode {
     Link,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SendSessionStatus {
+    Idle,
+    Preparing,
+    PinRequired,
+    Sending,
+    Completed,
+    Declined,
+    RecipientBusy,
+    TooManyAttempts,
+    CancelledByUser,
+    Failed,
+}
+
 /// Information about a selected file.
 #[derive(Clone, Debug)]
 pub struct SelectedFileInfo {
@@ -55,6 +69,8 @@ pub struct SendPageState {
     pub target_device: Option<ClientInfo>,
     pub target_ip: Option<String>,
     pub pending_send: bool,
+    pub session_status: SendSessionStatus,
+    pub session_status_text: Option<String>,
     pub has_scanned_once: bool,
     pub favorite_tokens: HashSet<String>,
 }
@@ -68,7 +84,7 @@ impl Default for SendPageState {
             nearby_devices: Vec::new(),
             nearby_endpoints: HashMap::new(),
             scanning: false,
-            local_ips: vec!["192.168.1.100".to_string()],
+            local_ips: Vec::new(),
             send_mode: SendMode::Single,
             help_index: 0,
             show_scan_menu: false,
@@ -76,6 +92,8 @@ impl Default for SendPageState {
             target_device: None,
             target_ip: None,
             pending_send: false,
+            session_status: SendSessionStatus::Idle,
+            session_status_text: None,
             has_scanned_once: false,
             favorite_tokens: HashSet::new(),
         }

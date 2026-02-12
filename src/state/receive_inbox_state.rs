@@ -20,6 +20,7 @@ pub struct ReceiveSession {
     pub completed: bool,
     pub cancelled: bool,
     pub is_message_only: bool,
+    pub selected_file_ids: Vec<String>,
 }
 
 #[derive(Default)]
@@ -40,9 +41,9 @@ impl ReceiveInboxState {
                 let is_message_only = files.len() == 1
                     && files
                         .first()
-                        .map(|f| f.file_type.starts_with("text/"))
+                        .map(|f| f.file_type.starts_with("text/") && f.preview.is_some())
                         .unwrap_or(false);
-                let items = files
+                let items: Vec<ReceiveItem> = files
                     .into_iter()
                     .map(|f| ReceiveItem {
                         file_id: f.file_id,
@@ -50,10 +51,11 @@ impl ReceiveInboxState {
                         file_type: f.file_type,
                         size: f.size,
                         saved_path: None,
-                        text_content: None,
+                        text_content: f.preview,
                     })
                     .collect();
                 self.active = Some(ReceiveSession {
+                    selected_file_ids: items.iter().map(|i| i.file_id.clone()).collect(),
                     session_id,
                     sender_alias,
                     sender_device_model,
@@ -101,5 +103,23 @@ impl ReceiveInboxState {
 
     pub fn clear(&mut self) {
         self.active = None;
+    }
+
+    pub fn toggle_file_selected(&mut self, file_id: &str) {
+        let Some(active) = self.active.as_mut() else {
+            return;
+        };
+        if let Some(idx) = active.selected_file_ids.iter().position(|id| id == file_id) {
+            active.selected_file_ids.remove(idx);
+        } else if active.items.iter().any(|item| item.file_id == file_id) {
+            active.selected_file_ids.push(file_id.to_string());
+        }
+    }
+
+    pub fn selected_file_ids(&self) -> Vec<String> {
+        self.active
+            .as_ref()
+            .map(|s| s.selected_file_ids.clone())
+            .unwrap_or_default()
     }
 }

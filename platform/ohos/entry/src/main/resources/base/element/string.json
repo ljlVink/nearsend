@@ -1,0 +1,20 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "A LocalSend protocol-compatible client built with GPUI and gpui-component."
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "A LocalSend protocol-compatible client built with GPUI and gpui-component."
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "NearSend"
+    },
+    {
+      "name": "READ_PASTEBOARD_PERMISSION",
+      "value": "允许应用访问剪贴板，用于快速传输文本"
+    }
+  ]
+}

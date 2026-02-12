@@ -10,12 +10,14 @@ use openharmony_ability::OpenHarmonyApp;
 mod app;
 mod assets;
 mod core;
+mod platform;
 mod state;
 mod ui;
 
 #[openharmony_ability_derive::ability]
 pub fn openharmony_app(app: OpenHarmonyApp) {
     ohos_hilog_binding::log::init_once(Config::default().with_max_level(LevelFilter::Debug));
+    platform::clipboard::set_ohos_app(app.clone());
 
     let inner_app = app.clone();
     // Initialize and run GPUI application

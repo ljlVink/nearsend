@@ -7,10 +7,11 @@ use crate::ui::theme::spacing;
 use gpui::{div, prelude::*, px, AnyElement, Context, Window};
 use gpui_component::scroll::ScrollableElement as _;
 use gpui_component::{
-    button::{Button, ButtonCustomVariant, ButtonVariants as _},
+    button::{Button, ButtonCustomVariant, ButtonVariant, ButtonVariants as _},
+    dialog::DialogButtonProps,
     h_flex,
     popover::Popover,
-    v_flex, ActiveTheme as _, Anchor, Icon, Sizable as _, Size, StyledExt as _,
+    v_flex, ActiveTheme as _, Anchor, Icon, Sizable as _, Size, StyledExt as _, WindowExt as _,
 };
 use gpui_router::RouterState;
 
@@ -176,11 +177,7 @@ pub fn render_receive_content(
                                     .text_color(cx.theme().muted_foreground)
                                     .text_center()
                                     .child(if server_running && !server_ips.is_empty() {
-                                        server_ips
-                                            .iter()
-                                            .map(|ip| format!("#{}", ip))
-                                            .collect::<Vec<_>>()
-                                            .join(" ")
+                                        format_visual_ip_ids(&server_ips)
                                     } else {
                                         "Offline".to_string()
                                     }),
@@ -211,8 +208,8 @@ pub fn render_receive_content(
                         h_flex()
                             .id("receive-quick-save")
                             .w_full()
-                            .max_w(px(430.))
-                            .h(px(60.))
+                            .max_w(px(350.))
+                            .h(px(46.))
                             .rounded_full()
                             .overflow_hidden()
                             .p(px(1.))
@@ -247,7 +244,7 @@ pub fn render_receive_content(
                                     .child(
                                         div()
                                             .text_lg()
-                                            .font_semibold()
+                                            .font_medium()
                                             .text_color(quick_save_text_color)
                                             .child("关"),
                                     ),
@@ -258,7 +255,7 @@ pub fn render_receive_content(
                                     .h_full()
                                     .flex()
                                     .items_center()
-                                    .child(div().w(px(1.)).h(px(36.)).bg(quick_save_divider))
+                                    .child(div().w(px(1.)).h(px(24.)).bg(quick_save_divider))
                                     .child(
                                         div()
                                             .id("quick-save-favorites")
@@ -275,19 +272,24 @@ pub fn render_receive_content(
                                             .justify_center()
                                             .on_click({
                                                 let home_entity = home_entity.clone();
-                                                move |_event, _window, cx| {
+                                                move |_event, window, cx| {
                                                     home_entity.update(cx, |this, _cx| {
                                                         set_quick_save_mode(
                                                             this,
                                                             QuickSaveMode::Favorites,
                                                         );
                                                     });
+                                                    open_quick_save_notice_dialog(
+                                                        QuickSaveMode::Favorites,
+                                                        window,
+                                                        cx,
+                                                    );
                                                 }
                                             })
                                             .child(
                                                 div()
                                                     .text_lg()
-                                                    .font_semibold()
+                                                    .font_medium()
                                                     .text_color(quick_save_text_color)
                                                     .child("收藏夹"),
                                             ),
@@ -299,7 +301,7 @@ pub fn render_receive_content(
                                     .h_full()
                                     .flex()
                                     .items_center()
-                                    .child(div().w(px(1.)).h(px(36.)).bg(quick_save_divider))
+                                    .child(div().w(px(1.)).h(px(24.)).bg(quick_save_divider))
                                     .child(
                                         div()
                                             .id("quick-save-on")
@@ -317,15 +319,20 @@ pub fn render_receive_content(
                                             .flex()
                                             .items_center()
                                             .justify_center()
-                                            .on_click(move |_event, _window, cx| {
+                                            .on_click(move |_event, window, cx| {
                                                 home_entity.update(cx, |this, _cx| {
                                                     set_quick_save_mode(this, QuickSaveMode::On);
                                                 });
+                                                open_quick_save_notice_dialog(
+                                                    QuickSaveMode::On,
+                                                    window,
+                                                    cx,
+                                                );
                                             })
                                             .child(
                                                 div()
                                                     .text_lg()
-                                                    .font_semibold()
+                                                    .font_medium()
                                                     .text_color(quick_save_text_color)
                                                     .child("开"),
                                             ),
@@ -335,6 +342,21 @@ pub fn render_receive_content(
             ),
         )
         .into_any_element()
+}
+
+fn format_visual_ip_ids(server_ips: &[String]) -> String {
+    let mut ids = Vec::new();
+    for ip in server_ips {
+        if let Some(id) = ip.split('.').next_back() {
+            if !ids.iter().any(|existing| existing == id) {
+                ids.push(id.to_string());
+            }
+        }
+    }
+    ids.into_iter()
+        .map(|id| format!("#{id}"))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn set_quick_save_mode(home: &mut HomePage, mode: QuickSaveMode) {
@@ -353,6 +375,63 @@ fn set_quick_save_mode(home: &mut HomePage, mode: QuickSaveMode) {
             home.settings_state.quick_save_favorites = false;
         }
     }
+}
+
+fn open_quick_save_notice_dialog(mode: QuickSaveMode, window: &mut Window, cx: &mut gpui::App) {
+    let (title, lines) = match mode {
+        QuickSaveMode::Favorites => (
+            "自动保存来自“收藏夹(白名单)”设备的文件",
+            vec![
+                "当前会自动接受收藏夹中设备的文件请求。",
+                "警告：这目前并非绝对安全，若您收藏夹列表中的设备指纹被黑客窃取，其仍可以向您发送文件。",
+                "但是，此选项比“允许任何设备”更安全。",
+            ],
+        ),
+        QuickSaveMode::On => (
+            "自动保存",
+            vec![
+                "自动接受所有文件传输请求。请注意，这会让此网络中的所有人都可以向你发送文件。",
+            ],
+        ),
+        QuickSaveMode::Off => return,
+    };
+
+    let title = title.to_string();
+    let lines = lines
+        .into_iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>();
+
+    window.open_dialog(cx, move |dialog, _window, _cx| {
+        dialog
+            .title(
+                div()
+                    .text_lg()
+                    .font_semibold()
+                    .text_color(_cx.theme().foreground)
+                    .child(title.clone()),
+            )
+            .overlay(true)
+            .w(px(360.))
+            .child(
+                v_flex()
+                    .w_full()
+                    .gap(px(8.))
+                    .children(lines.iter().map(|line| {
+                        div()
+                            .text_sm()
+                            .line_height(px(20.))
+                            .text_color(_cx.theme().foreground)
+                            .child(line.clone())
+                    })),
+            )
+            .alert()
+            .button_props(
+                DialogButtonProps::default()
+                    .ok_text("确定")
+                    .ok_variant(ButtonVariant::Danger),
+            )
+    });
 }
 
 /// Render a single info row with fixed-width label.

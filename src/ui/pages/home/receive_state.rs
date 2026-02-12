@@ -38,7 +38,7 @@ impl Default for ReceivePageState {
             quick_save_mode: QuickSaveMode::Off,
             show_advanced: false,
             server_alias: "NearSend".to_string(),
-            server_ips: vec!["192.168.1.100".to_string()],
+            server_ips: Vec::new(),
             server_port: 53317,
             server_running: false,
             incoming_request: None,

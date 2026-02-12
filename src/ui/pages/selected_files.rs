@@ -1,6 +1,7 @@
 //! Selected files page: review and manage files before sending.
 //! Route: /send/files
 
+use crate::state::app_state::AppState;
 use crate::state::send_selection_state::SendSelectionState;
 use crate::ui::theme::spacing;
 use gpui::{div, prelude::*, px, Context, Entity, Window};
@@ -12,14 +13,25 @@ use gpui_component::{
 };
 use gpui_router::RouterState;
 
+enum ClipboardPickOutcome {
+    Success(String),
+    PermissionDenied,
+    ReadFailed,
+}
+
 /// Selected files page state.
 pub struct SelectedFilesPage {
+    app_state: Entity<AppState>,
     send_selection_state: Entity<SendSelectionState>,
 }
 
 impl SelectedFilesPage {
-    pub fn new(send_selection_state: Entity<SendSelectionState>) -> Self {
+    pub fn new(
+        app_state: Entity<AppState>,
+        send_selection_state: Entity<SendSelectionState>,
+    ) -> Self {
         Self {
+            app_state,
             send_selection_state,
         }
     }
@@ -201,7 +213,7 @@ impl SelectedFilesPage {
                                 .on_click(move |_event, window, cx| {
                                     window.close_dialog(cx);
                                     page_clipboard.update(cx, |this, cx| {
-                                        this.open_notice_dialog("剪贴板发送即将接入。", window, cx);
+                                        this.add_from_clipboard(window, cx);
                                     });
                                 })
                                 .child(
@@ -222,6 +234,77 @@ impl SelectedFilesPage {
                 .alert()
                 .button_props(gpui_component::dialog::DialogButtonProps::default().ok_text("关闭"))
         });
+    }
+
+    fn add_from_clipboard(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let window_handle = window.window_handle();
+        let page_entity = cx.entity();
+        let tokio_handle = self.app_state.read(cx).tokio_handle.clone();
+
+        let join = tokio_handle.spawn(async move {
+            let permission_granted =
+                match crate::platform::clipboard::ensure_read_clipboard_permission().await {
+                    Ok(granted) => granted,
+                    Err(err) => {
+                        log::error!("ensure read clipboard permission failed: {}", err);
+                        false
+                    }
+                };
+            if !permission_granted {
+                return ClipboardPickOutcome::PermissionDenied;
+            }
+
+            let text = match crate::platform::clipboard::read_clipboard_text().await {
+                Ok(text) => text,
+                Err(err) => {
+                    log::error!("read clipboard text failed: {}", err);
+                    return ClipboardPickOutcome::ReadFailed;
+                }
+            };
+            if text.is_empty() {
+                return ClipboardPickOutcome::Success(String::new());
+            }
+
+            ClipboardPickOutcome::Success(text)
+        });
+
+        cx.spawn(async move |_this, cx| {
+            let outcome = match join.await {
+                Ok(outcome) => outcome,
+                Err(err) => {
+                    log::error!("clipboard task failed: {}", err);
+                    ClipboardPickOutcome::ReadFailed
+                }
+            };
+
+            match outcome {
+                ClipboardPickOutcome::Success(text) => {
+                    if text.is_empty() {
+                        return;
+                    }
+                    let _ = page_entity.update(cx, |this, cx| {
+                        this.send_selection_state.update(cx, |state, _| {
+                            state.add_text(text.clone());
+                        });
+                    });
+                }
+                ClipboardPickOutcome::PermissionDenied => {
+                    let _ = window_handle.update(cx, |_, window, cx| {
+                        let _ = page_entity.update(cx, |this, cx| {
+                            this.open_notice_dialog("无权限。请开启权限。", window, cx);
+                        });
+                    });
+                }
+                ClipboardPickOutcome::ReadFailed => {
+                    let _ = window_handle.update(cx, |_, window, cx| {
+                        let _ = page_entity.update(cx, |this, cx| {
+                            this.open_notice_dialog("读取剪贴板失败。", window, cx);
+                        });
+                    });
+                }
+            }
+        })
+        .detach();
     }
 }
 

@@ -508,7 +508,7 @@ pub fn render_send_content(
                                                 .and_then(|d| this.send_state.nearby_endpoints.get(&d.token))
                                                 .cloned()
                                             {
-                                                this.execute_send(endpoint.ip, endpoint.port, cx);
+                                                this.execute_send(endpoint.ip, endpoint.port, window, cx);
                                             } else {
                                                 this.send_state.target_ip = None;
                                                 this.open_send_to_address_dialog(window, cx);

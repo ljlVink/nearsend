@@ -5,3 +5,4 @@ target/
 package/libs
 
 *.har
+*.so
