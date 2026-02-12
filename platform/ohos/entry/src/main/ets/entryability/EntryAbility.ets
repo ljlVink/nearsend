@@ -32,8 +32,15 @@ export default class EntryAbility extends RustAbility {
     want: Want,
     launchParam: AbilityConstant.LaunchParam,
   ): Promise<void> {
+    const setPreferencesPathFn =
+      nearSend.setPreferencesPath;
+    const preferencesDir = this.context?.preferencesDir;
+    if (typeof setPreferencesPathFn === "function" && typeof preferencesDir === "string" && preferencesDir.length > 0) {
+      setPreferencesPathFn(preferencesDir);
+    }
+
     const registerFn =
-      nearSend?.registerClipboardCallbacks;
+      nearSend.registerClipboardCallbacks;
     if (typeof registerFn === "function") {
       registerFn(
         async () => await this.readClipboardText(),

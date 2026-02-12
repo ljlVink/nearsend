@@ -375,6 +375,7 @@ fn set_quick_save_mode(home: &mut HomePage, mode: QuickSaveMode) {
             home.settings_state.quick_save_favorites = false;
         }
     }
+    home.persist_settings();
 }
 
 fn open_quick_save_notice_dialog(mode: QuickSaveMode, window: &mut Window, cx: &mut gpui::App) {

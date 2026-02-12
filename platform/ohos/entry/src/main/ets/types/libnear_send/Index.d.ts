@@ -35,3 +35,4 @@ export declare function registerClipboardCallbacks(readClipboard: () => unknown,
 
 export declare function render(helper: object, slot: NodeContent): void
 
+export declare function setPreferencesPath(preferencesPath: string): void

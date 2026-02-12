@@ -528,9 +528,7 @@ pub fn render_send_content(
                                                     let token = token.clone();
                                                     move |_device, _window, cx| {
                                                         home_for_favorite.update(cx, |this, _cx| {
-                                                            if !this.send_state.favorite_tokens.insert(token.clone()) {
-                                                                this.send_state.favorite_tokens.remove(&token);
-                                                            }
+                                                            this.send_state.toggle_favorite_token(&token);
                                                         });
                                                     }
                                                 })

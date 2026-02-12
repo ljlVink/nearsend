@@ -38,6 +38,7 @@ impl AppRoot {
                 app_state.clone(),
                 device_state.clone(),
                 transfer_state.clone(),
+                history_state.clone(),
                 send_selection_state.clone(),
                 receive_inbox_state.clone(),
             )

@@ -1,22 +1,29 @@
 //! Settings tab state and types (theme, color, receive/send/network options).
+use serde::{Deserialize, Serialize};
 
 /// Theme mode (Brightness)
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
 pub enum ThemeMode {
+    #[default]
     System,
     Light,
     Dark,
 }
 
 /// Color mode
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
 pub enum ColorMode {
+    #[default]
     System,
     LocalSend,
     Oled,
 }
 
 /// Settings tab state
+#[derive(Serialize, Deserialize)]
+#[serde(default)]
 pub struct SettingsPageState {
     pub theme_mode: ThemeMode,
     pub color_mode: ColorMode,
@@ -32,7 +39,9 @@ pub struct SettingsPageState {
     pub auto_finish: bool,
     pub save_to_history: bool,
     pub share_via_link_auto_accept: bool,
+    #[serde(skip)]
     pub server_running: bool,
+    #[serde(skip)]
     pub server_paused: bool,
     pub server_alias: String,
     pub server_port: u16,
@@ -42,6 +51,45 @@ pub struct SettingsPageState {
     pub discovery_timeout: u32,
     pub encryption: bool,
     pub multicast_group: String,
+}
+
+impl SettingsPageState {
+    pub fn load_or_default() -> Self {
+        let path = crate::platform::preferences_path::get_preferences_file_path("settings.json");
+        let Ok(raw) = std::fs::read_to_string(&path) else {
+            return Self::default();
+        };
+
+        match serde_json::from_str::<Self>(&raw) {
+            Ok(state) => state,
+            Err(err) => {
+                log::warn!("failed to parse settings file {}: {}", path.display(), err);
+                Self::default()
+            }
+        }
+    }
+
+    pub fn persist_to_disk(&self) {
+        let path = crate::platform::preferences_path::get_preferences_file_path("settings.json");
+        if let Some(dir) = path.parent() {
+            if let Err(err) = std::fs::create_dir_all(dir) {
+                log::warn!(
+                    "failed to create preferences dir {}: {}",
+                    dir.display(),
+                    err
+                );
+                return;
+            }
+        }
+
+        let Ok(serialized) = serde_json::to_string_pretty(self) else {
+            log::warn!("failed to serialize settings state");
+            return;
+        };
+        if let Err(err) = std::fs::write(&path, serialized) {
+            log::warn!("failed to write settings file {}: {}", path.display(), err);
+        }
+    }
 }
 
 impl Default for SettingsPageState {

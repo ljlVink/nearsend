@@ -191,6 +191,7 @@ pub fn render_settings_content(
                         .on_click(cx.listener(|this, _ev, _window, cx| {
                             this.settings_state.require_pin = !this.settings_state.require_pin;
                             this.sync_server_config_to_runtime(cx);
+                            this.persist_settings();
                         }))
                         .child(Switch::new(require_pin)),
                 ),
@@ -317,6 +318,7 @@ pub fn render_settings_content(
         let encryption = app.settings_state.encryption;
         let n3 = render_boolean_entry("加密", encryption, "toggle-encryption", cx, |this| {
             this.settings_state.encryption = !this.settings_state.encryption;
+            this.persist_settings();
         });
         let net_label = if network_filtered {
             "已过滤"
@@ -363,6 +365,7 @@ pub fn render_settings_content(
                         .cursor_pointer()
                         .on_click(cx.listener(|this, _ev, _win, _cx| {
                             this.settings_state.advanced = !this.settings_state.advanced;
+                            this.persist_settings();
                         }))
                         .child(
                             div()

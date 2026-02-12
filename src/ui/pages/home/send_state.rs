@@ -1,6 +1,7 @@
 //! Send tab state and types (selected files, nearby devices, send mode, etc.).
 
 use localsend::http::state::ClientInfo;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
@@ -75,6 +76,26 @@ pub struct SendPageState {
     pub favorite_tokens: HashSet<String>,
 }
 
+#[derive(Default, Serialize, Deserialize)]
+#[serde(default)]
+struct FavoritesData {
+    favorite_tokens: Vec<String>,
+}
+
+fn load_favorite_tokens() -> HashSet<String> {
+    let path = crate::platform::preferences_path::get_preferences_file_path("favorites.json");
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return HashSet::new();
+    };
+    match serde_json::from_str::<FavoritesData>(&raw) {
+        Ok(data) => data.favorite_tokens.into_iter().collect(),
+        Err(err) => {
+            log::warn!("failed to parse favorites file {}: {}", path.display(), err);
+            HashSet::new()
+        }
+    }
+}
+
 impl Default for SendPageState {
     fn default() -> Self {
         Self {
@@ -95,7 +116,43 @@ impl Default for SendPageState {
             session_status: SendSessionStatus::Idle,
             session_status_text: None,
             has_scanned_once: false,
-            favorite_tokens: HashSet::new(),
+            favorite_tokens: load_favorite_tokens(),
+        }
+    }
+}
+
+impl SendPageState {
+    pub fn toggle_favorite_token(&mut self, token: &str) {
+        if !self.favorite_tokens.insert(token.to_string()) {
+            self.favorite_tokens.remove(token);
+        }
+        self.persist_favorites();
+    }
+
+    fn persist_favorites(&self) {
+        let path = crate::platform::preferences_path::get_preferences_file_path("favorites.json");
+        if let Some(dir) = path.parent() {
+            if let Err(err) = std::fs::create_dir_all(dir) {
+                log::warn!(
+                    "failed to create preferences dir {}: {}",
+                    dir.display(),
+                    err
+                );
+                return;
+            }
+        }
+
+        let mut tokens: Vec<String> = self.favorite_tokens.iter().cloned().collect();
+        tokens.sort_unstable();
+        let payload = FavoritesData {
+            favorite_tokens: tokens,
+        };
+        let Ok(serialized) = serde_json::to_string_pretty(&payload) else {
+            log::warn!("failed to serialize favorites state");
+            return;
+        };
+        if let Err(err) = std::fs::write(&path, serialized) {
+            log::warn!("failed to write favorites file {}: {}", path.display(), err);
         }
     }
 }

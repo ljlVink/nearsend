@@ -15,8 +15,12 @@ pub use send_state::{
 pub use settings_state::{ColorMode, SettingsPageState, ThemeMode};
 
 use crate::state::{
-    app_state::AppState, device_state::DeviceState, receive_inbox_state::ReceiveInboxState,
-    send_selection_state::SendSelectionState, transfer_state::TransferState,
+    app_state::AppState,
+    device_state::DeviceState,
+    history_state::{HistoryEntry, HistoryState},
+    receive_inbox_state::ReceiveInboxState,
+    send_selection_state::SendSelectionState,
+    transfer_state::{TransferDirection, TransferState, TransferStatus},
 };
 use gpui::{div, prelude::*, px, AnyElement, Context, Entity, IntoElement, Window};
 use gpui_component::button::{Button, ButtonCustomVariant, ButtonVariants as _};
@@ -31,7 +35,7 @@ use localsend::model::discovery::DeviceType;
 use std::collections::BTreeSet;
 use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::oneshot;
 
 /// Tab identifier for home page bottom navigation.
@@ -47,6 +51,7 @@ pub struct HomePage {
     pub(super) app_state: Entity<AppState>,
     pub(super) device_state: Entity<DeviceState>,
     pub(super) transfer_state: Entity<TransferState>,
+    pub(super) history_state: Entity<HistoryState>,
     pub(super) send_selection_state: Entity<SendSelectionState>,
     pub(super) receive_inbox_state: Entity<ReceiveInboxState>,
     pub(super) current_tab: TabType,
@@ -84,19 +89,33 @@ impl HomePage {
         app_state: Entity<AppState>,
         device_state: Entity<DeviceState>,
         transfer_state: Entity<TransferState>,
+        history_state: Entity<HistoryState>,
         send_selection_state: Entity<SendSelectionState>,
         receive_inbox_state: Entity<ReceiveInboxState>,
     ) -> Self {
         let alias = generate_random_alias();
         let mut receive_state = ReceivePageState::default();
-        receive_state.server_alias = alias.clone();
-        let mut settings_state = SettingsPageState::default();
-        settings_state.server_alias = alias;
+        let settings_file_exists =
+            crate::platform::preferences_path::get_preferences_file_path("settings.json").exists();
+        let mut settings_state = SettingsPageState::load_or_default();
+        if !settings_file_exists || settings_state.server_alias.trim().is_empty() {
+            settings_state.server_alias = alias;
+            settings_state.persist_to_disk();
+        }
+        receive_state.server_alias = settings_state.server_alias.clone();
+        receive_state.quick_save_mode = if settings_state.quick_save {
+            QuickSaveMode::On
+        } else if settings_state.quick_save_favorites {
+            QuickSaveMode::Favorites
+        } else {
+            QuickSaveMode::Off
+        };
 
         Self {
             app_state,
             device_state,
             transfer_state,
+            history_state,
             send_selection_state,
             receive_inbox_state,
             current_tab: TabType::Receive,
@@ -110,6 +129,10 @@ impl HomePage {
             text_input_state: None,
             send_ip_input_state: None,
         }
+    }
+
+    pub(super) fn persist_settings(&self) {
+        self.settings_state.persist_to_disk();
     }
 }
 
@@ -184,6 +207,7 @@ impl HomePage {
         log::info!("poll_incoming_events: received {} events", events.len());
 
         let mut should_open_receive_page = false;
+        let mut history_entries = Vec::new();
         let settings_quick_save = self.settings_state.quick_save;
         let settings_quick_save_favorites = self.settings_state.quick_save_favorites;
         let favorite_tokens = self.send_state.favorite_tokens.clone();
@@ -232,12 +256,53 @@ impl HomePage {
                                 should_open_receive_page = true;
                             }
                         }
+
+                        if let crate::core::receive_events::IncomingTransferEvent::FileReceived {
+                            session_id,
+                            file_id,
+                            saved_path,
+                            ..
+                        } = &event
+                        {
+                            if let Some(active) = state.active.as_ref() {
+                                if active.session_id == *session_id {
+                                    if let Some(item) =
+                                        active.items.iter().find(|x| x.file_id == *file_id)
+                                    {
+                                        let file_path = saved_path
+                                            .as_ref()
+                                            .map(std::path::PathBuf::from)
+                                            .unwrap_or_default();
+                                        let timestamp = SystemTime::now()
+                                            .duration_since(UNIX_EPOCH)
+                                            .map(|d| d.as_secs())
+                                            .unwrap_or(0);
+                                        history_entries.push(HistoryEntry {
+                                            id: uuid::Uuid::new_v4().to_string(),
+                                            file_name: item.file_name.clone(),
+                                            file_size: item.size,
+                                            file_path,
+                                            direction: TransferDirection::Receive,
+                                            device_name: active.sender_alias.clone(),
+                                            timestamp,
+                                            status: TransferStatus::Completed,
+                                        });
+                                    }
+                                }
+                            }
+                        }
                     }
                     _ => {}
                 }
                 state.apply_event(event);
             }
         });
+
+        for entry in history_entries {
+            let _ = self.history_state.update(cx, |state, _| {
+                state.add_entry(entry);
+            });
+        }
 
         if should_open_receive_page {
             log::info!("poll_incoming_events: navigate to /receive/incoming");
@@ -845,6 +910,7 @@ impl HomePage {
                         "深色" => ThemeMode::Dark,
                         _ => ThemeMode::System,
                     };
+                    this.persist_settings();
                 }
             },
         )
@@ -875,6 +941,7 @@ impl HomePage {
                         "OLED" => ColorMode::Oled,
                         _ => ColorMode::System,
                     };
+                    this.persist_settings();
                 }
             },
         )
@@ -896,6 +963,7 @@ impl HomePage {
             |this, _, event: &SelectEvent<Vec<&'static str>>, _win, _cx| {
                 if let SelectEvent::Confirm(Some(value)) = event {
                     this.settings_state.language = value.to_string();
+                    this.persist_settings();
                 }
             },
         )
@@ -1067,6 +1135,7 @@ impl HomePage {
                     home_for_ok.update(cx, |this, cx| {
                         this.settings_state.server_alias = alias.clone();
                         this.sync_server_config_to_runtime(cx);
+                        this.persist_settings();
                     });
                     true
                 })
@@ -1117,6 +1186,7 @@ impl HomePage {
                     home_for_ok.update(cx, |this, cx| {
                         this.settings_state.server_port = port;
                         this.sync_server_config_to_runtime(cx);
+                        this.persist_settings();
                     });
                     true
                 })
@@ -1161,6 +1231,7 @@ impl HomePage {
                     home_for_ok.update(cx, |this, cx| {
                         this.settings_state.receive_pin = pin.clone();
                         this.sync_server_config_to_runtime(cx);
+                        this.persist_settings();
                     });
                     true
                 })
@@ -1472,6 +1543,14 @@ impl HomePage {
         let (notify_tx, mut notify_rx) = tokio::sync::mpsc::unbounded_channel::<SendUiMessage>();
         let window_handle = window.window_handle();
         let home_entity = cx.entity();
+        let sent_files_for_history = self.send_state.selected_files.clone();
+        let target_device_name = self
+            .send_state
+            .target_device
+            .as_ref()
+            .map(|d| d.alias.clone())
+            .unwrap_or_else(|| format!("{}:{}", ip, port));
+        let history_state = self.history_state.clone();
         log::info!(
             "Starting send to {}:{} with {} files",
             ip,
@@ -2389,7 +2468,7 @@ impl HomePage {
                         });
                     }
                     SendUiMessage::UpdateStatus { status, message } => {
-                        let _ = home_entity.update(cx, |this, _| {
+                        let _ = home_entity.update(cx, |this, cx| {
                             this.send_state.session_status = status;
                             this.send_state.session_status_text = message.clone();
                             this.send_state.pending_send = !matches!(
@@ -2402,6 +2481,28 @@ impl HomePage {
                                     | SendSessionStatus::CancelledByUser
                                     | SendSessionStatus::Failed
                             );
+
+                            if status == SendSessionStatus::Completed {
+                                let timestamp = SystemTime::now()
+                                    .duration_since(UNIX_EPOCH)
+                                    .map(|d| d.as_secs())
+                                    .unwrap_or(0);
+                                for file in &sent_files_for_history {
+                                    let entry = HistoryEntry {
+                                        id: uuid::Uuid::new_v4().to_string(),
+                                        file_name: file.name.clone(),
+                                        file_size: file.size,
+                                        file_path: file.path.clone(),
+                                        direction: TransferDirection::Send,
+                                        device_name: target_device_name.clone(),
+                                        timestamp,
+                                        status: TransferStatus::Completed,
+                                    };
+                                    let _ = history_state.update(cx, |state, _| {
+                                        state.add_entry(entry);
+                                    });
+                                }
+                            }
                         });
                     }
                     SendUiMessage::RequestPin {
