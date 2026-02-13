@@ -19,6 +19,12 @@ enum ClipboardPickOutcome {
     ReadFailed,
 }
 
+enum PathPickOutcome {
+    Success(Vec<std::path::PathBuf>),
+    Cancelled,
+    Failed,
+}
+
 /// Selected files page state.
 pub struct SelectedFilesPage {
     app_state: Entity<AppState>,
@@ -130,7 +136,7 @@ impl SelectedFilesPage {
                                 .on_click(move |_event, window, cx| {
                                     window.close_dialog(cx);
                                     page_file.update(cx, |this, cx| {
-                                        this.open_notice_dialog("文件选择器即将接入。", window, cx);
+                                        this.add_from_system_picker(false, window, cx);
                                     });
                                 })
                                 .child(
@@ -156,7 +162,7 @@ impl SelectedFilesPage {
                                 .on_click(move |_event, window, cx| {
                                     window.close_dialog(cx);
                                     page_folder.update(cx, |this, cx| {
-                                        this.open_notice_dialog("文件夹选择即将接入。", window, cx);
+                                        this.add_from_system_picker(true, window, cx);
                                     });
                                 })
                                 .child(
@@ -299,6 +305,89 @@ impl SelectedFilesPage {
                     let _ = window_handle.update(cx, |_, window, cx| {
                         let _ = page_entity.update(cx, |this, cx| {
                             this.open_notice_dialog("读取剪贴板失败。", window, cx);
+                        });
+                    });
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn add_from_system_picker(
+        &self,
+        pick_folder: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let window_handle = window.window_handle();
+        let page_entity = cx.entity();
+        let send_selection_state = self.send_selection_state.clone();
+        let tokio_handle = self.app_state.read(cx).tokio_handle.clone();
+
+        let join = tokio_handle.spawn(async move {
+            let uris = if pick_folder {
+                crate::platform::file_picker::pick_folders().await
+            } else {
+                crate::platform::file_picker::pick_files().await
+            };
+            match uris {
+                Ok(uris) => {
+                    if uris.is_empty() {
+                        PathPickOutcome::Cancelled
+                    } else {
+                        let paths = uris
+                            .into_iter()
+                            .filter_map(|uri| {
+                                crate::platform::file_picker::picker_uri_to_path(&uri)
+                            })
+                            .collect::<Vec<_>>();
+                        if paths.is_empty() {
+                            PathPickOutcome::Failed
+                        } else {
+                            PathPickOutcome::Success(paths)
+                        }
+                    }
+                }
+                Err(err) => {
+                    log::error!("pick from system failed: {}", err);
+                    PathPickOutcome::Failed
+                }
+            }
+        });
+
+        cx.spawn(async move |_this, cx| {
+            let outcome = match join.await {
+                Ok(outcome) => outcome,
+                Err(err) => {
+                    log::error!("picker task failed: {}", err);
+                    PathPickOutcome::Failed
+                }
+            };
+
+            match outcome {
+                PathPickOutcome::Success(paths) => {
+                    let mut added = 0usize;
+                    let _ = send_selection_state.update(cx, |state, _| {
+                        added = state.add_paths_recursive(paths.clone());
+                    });
+                    if added > 0 {
+                        return;
+                    }
+                    let _ = window_handle.update(cx, |_, window, cx| {
+                        let _ = page_entity.update(cx, |this, cx| {
+                            this.open_notice_dialog(
+                                "未添加到可发送文件，请确认已授权并且文件可读。",
+                                window,
+                                cx,
+                            );
+                        });
+                    });
+                }
+                PathPickOutcome::Cancelled => {}
+                PathPickOutcome::Failed => {
+                    let _ = window_handle.update(cx, |_, window, cx| {
+                        let _ = page_entity.update(cx, |this, cx| {
+                            this.open_notice_dialog("选择文件失败。", window, cx);
                         });
                     });
                 }

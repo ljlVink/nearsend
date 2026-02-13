@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration as StdDuration, Instant};
 use tokio::runtime::Handle;
@@ -61,6 +62,7 @@ struct IncomingSession {
     sender_device_model: Option<String>,
     sender_fingerprint: String,
     files: HashMap<String, IncomingSessionFile>,
+    save_directory: Option<PathBuf>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -634,6 +636,7 @@ async fn handle_prepare_upload(
             sender_device_model,
             sender_fingerprint,
             files: session_files,
+            save_directory: None,
         },
     );
 
@@ -776,11 +779,30 @@ async fn handle_upload(
         } else {
             None
         };
-        let save_dir = std::env::temp_dir()
-            .join("near-send-received")
-            .join(&session_id);
+        let save_root = if let Some(dir) = session.save_directory.clone() {
+            dir
+        } else {
+            let chosen = crate::platform::file_picker::pick_save_directory()
+                .await
+                .map_err(|err| {
+                    (
+                        StatusCode::CONFLICT,
+                        format!("pick save directory failed: {}", err),
+                    )
+                })?;
+            let dir = chosen.ok_or((
+                StatusCode::CONFLICT,
+                "No save directory selected".to_string(),
+            ))?;
+            session.save_directory = Some(dir.clone());
+            dir
+        };
+        let save_dir = save_root.join("near-send-received").join(&session_id);
         let _ = tokio::fs::create_dir_all(&save_dir).await;
-        let file_path = save_dir.join(sanitize_file_name(&file.file_name));
+        let file_path = save_dir.join(sanitize_relative_file_path(&file.file_name));
+        if let Some(parent) = file_path.parent() {
+            let _ = tokio::fs::create_dir_all(parent).await;
+        }
         if let Err(err) = tokio::fs::write(&file_path, body).await {
             log::warn!("save incoming file failed: {}", err);
         }
@@ -950,12 +972,25 @@ fn query_first<'a>(query: &'a HashMap<String, String>, keys: &[&str]) -> Option<
     None
 }
 
-fn sanitize_file_name(name: &str) -> String {
+fn sanitize_relative_file_path(name: &str) -> std::path::PathBuf {
+    use std::path::{Component, PathBuf};
+
     let trimmed = name.trim();
     if trimmed.is_empty() {
-        return format!("{}.bin", uuid::Uuid::new_v4());
+        return PathBuf::from(format!("{}.bin", uuid::Uuid::new_v4()));
     }
-    trimmed.replace('/', "_").replace('\\', "_")
+    let normalized = trimmed.replace('\\', "/");
+    let mut safe = PathBuf::new();
+    for component in PathBuf::from(&normalized).components() {
+        if let Component::Normal(part) = component {
+            safe.push(part);
+        }
+    }
+    if safe.as_os_str().is_empty() {
+        PathBuf::from(format!("{}.bin", uuid::Uuid::new_v4()))
+    } else {
+        safe
+    }
 }
 
 fn normalize_file_type(ft: &str) -> String {

@@ -28,22 +28,12 @@ fn render_content_type_button(
     id: impl Into<gpui::ElementId>,
     icon_path: impl Into<gpui::SharedString>,
     label: &str,
-    selected: bool,
     cx: &mut Context<HomePage>,
     on_click: impl Fn(&mut HomePage, &mut Window, &mut Context<HomePage>) + 'static,
 ) -> AnyElement {
     let icon_path = icon_path.into();
-    let primary = cx.theme().primary;
-    let bg = if selected {
-        primary
-    } else {
-        cx.theme().secondary
-    };
-    let fg = if selected {
-        cx.theme().primary_foreground
-    } else {
-        cx.theme().foreground
-    };
+    let bg = cx.theme().muted;
+    let fg = cx.theme().foreground;
 
     Button::new(id)
         .flex_none()
@@ -129,7 +119,6 @@ pub fn render_send_content(
     let selected_files = app.send_state.selected_files.clone();
     let has_files = !selected_files.is_empty();
     let scanning = app.send_state.scanning;
-    let send_content_type = app.send_state.send_content_type;
     let total_size = app.send_state.selected_files_total_size;
     let animations = app.settings_state.animations;
     let home_entity = cx.entity();
@@ -186,7 +175,6 @@ pub fn render_send_content(
                                                 "content-file",
                                                 "icons/file.svg",
                                                 "文件",
-                                                send_content_type == super::SendContentType::File,
                                                 cx,
                                                 |this, window, cx| {
                                                     this.handle_pick_content(
@@ -200,7 +188,6 @@ pub fn render_send_content(
                                                 "content-folder",
                                                 "icons/folder.svg",
                                                 "文件夹",
-                                                send_content_type == super::SendContentType::Folder,
                                                 cx,
                                                 |this, window, cx| {
                                                     this.handle_pick_content(
@@ -214,7 +201,6 @@ pub fn render_send_content(
                                                 "content-text",
                                                 "icons/book-open.svg",
                                                 "文本",
-                                                send_content_type == super::SendContentType::Text,
                                                 cx,
                                                 |this, window, cx| {
                                                     this.handle_pick_content(
@@ -228,7 +214,6 @@ pub fn render_send_content(
                                                 "content-clipboard",
                                                 "icons/external-link.svg",
                                                 "剪贴板",
-                                                send_content_type == super::SendContentType::Media,
                                                 cx,
                                                 |this, window, cx| {
                                                     this.handle_pick_content(

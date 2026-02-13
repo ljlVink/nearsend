@@ -148,6 +148,12 @@ enum ClipboardPickOutcome {
     ReadFailed,
 }
 
+enum PathPickOutcome {
+    Success(Vec<std::path::PathBuf>),
+    Cancelled,
+    Failed,
+}
+
 enum SendUiMessage {
     Notice(String),
     UpdateStatus {
@@ -642,16 +648,91 @@ impl HomePage {
         self.send_state.send_content_type = content_type;
         match content_type {
             SendContentType::Text => self.open_text_input_dialog(window, cx),
-            SendContentType::File => self.open_simple_notice_dialog(
-                "文件选择器即将接入。当前可先使用“文本”发送。",
-                window,
-                cx,
-            ),
-            SendContentType::Folder => {
-                self.open_simple_notice_dialog("文件夹选择即将接入。", window, cx)
-            }
+            SendContentType::File => self.handle_pick_from_system(false, window, cx),
+            SendContentType::Folder => self.handle_pick_from_system(true, window, cx),
             SendContentType::Media => self.handle_pick_clipboard(window, cx),
         }
+    }
+
+    fn handle_pick_from_system(
+        &mut self,
+        pick_folder: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let window_handle = window.window_handle();
+        let home_entity = cx.entity();
+        let send_selection_state = self.send_selection_state.clone();
+        let tokio_handle = self.app_state.read(cx).tokio_handle.clone();
+        let join = tokio_handle.spawn(async move {
+            let uris = if pick_folder {
+                crate::platform::file_picker::pick_folders().await
+            } else {
+                crate::platform::file_picker::pick_files().await
+            };
+            match uris {
+                Ok(uris) => {
+                    if uris.is_empty() {
+                        PathPickOutcome::Cancelled
+                    } else {
+                        let paths = uris
+                            .into_iter()
+                            .filter_map(|uri| {
+                                crate::platform::file_picker::picker_uri_to_path(&uri)
+                            })
+                            .collect::<Vec<_>>();
+                        if paths.is_empty() {
+                            PathPickOutcome::Failed
+                        } else {
+                            PathPickOutcome::Success(paths)
+                        }
+                    }
+                }
+                Err(err) => {
+                    log::error!("pick from system failed: {}", err);
+                    PathPickOutcome::Failed
+                }
+            }
+        });
+
+        cx.spawn(async move |_this, cx| {
+            let outcome = match join.await {
+                Ok(outcome) => outcome,
+                Err(err) => {
+                    log::error!("picker task failed: {}", err);
+                    PathPickOutcome::Failed
+                }
+            };
+            match outcome {
+                PathPickOutcome::Success(paths) => {
+                    let mut added = 0usize;
+                    let _ = send_selection_state.update(cx, |state, _| {
+                        added = state.add_paths_recursive(paths.clone());
+                    });
+                    if added > 0 {
+                        return;
+                    }
+                    let _ = window_handle.update(cx, |_, window, cx| {
+                        let _ = home_entity.update(cx, |this, cx| {
+                            this.open_simple_notice_dialog(
+                                "未添加到可发送文件，请确认已授权并且文件可读。",
+                                window,
+                                cx,
+                            );
+                        });
+                    });
+                }
+                PathPickOutcome::Cancelled => {}
+                PathPickOutcome::Failed => {
+                    let _ = window_handle.update(cx, |_, window, cx| {
+                        let _ = home_entity.update(cx, |this, cx| {
+                            this.open_simple_notice_dialog("选择文件失败。", window, cx);
+                        });
+                    });
+                }
+            }
+        })
+        .detach();
     }
 
     fn handle_pick_clipboard(&mut self, window: &mut Window, cx: &mut Context<Self>) {
