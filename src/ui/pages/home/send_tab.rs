@@ -429,7 +429,7 @@ pub fn render_send_content(
                                                     if !this.ensure_has_selected_files(window, cx) {
                                                         return;
                                                     }
-                                                    this.open_simple_notice_dialog("收藏夹发送即将接入。", window, cx);
+                                                    this.open_favorites_dialog(window, cx);
                                                 },
                                             ))
                                             // Send mode button
@@ -437,7 +437,9 @@ pub fn render_send_content(
                                                 "send-mode",
                                                 "icons/settings.svg",
                                                 cx,
-                                                |this, window, cx| this.cycle_send_mode(window, cx),
+                                                |this, window, cx| {
+                                                    this.open_send_mode_dialog(window, cx)
+                                                },
                                             )),
                                     ),
                             ),
@@ -459,6 +461,8 @@ pub fn render_send_content(
                                     let device_for_select = device.clone();
                                     let token = device.token.clone();
                                     let is_favorite = app.send_state.favorite_tokens.contains(&token);
+                                    let favorite_device =
+                                        app.send_state.favorite_devices.get(&token).cloned();
                                     let endpoint = app.send_state.nearby_endpoints.get(&token);
                                     let protocol_badge = endpoint
                                         .map(|endpoint| {
@@ -504,6 +508,11 @@ pub fn render_send_content(
                                                 let mut card = DeviceCard::new(device.clone())
                                                     .is_favorite(is_favorite)
                                                     .protocol_badge(protocol_badge);
+                                                if let Some(favorite) = favorite_device.clone() {
+                                                    if !favorite.alias.trim().is_empty() {
+                                                        card = card.name_override(favorite.alias);
+                                                    }
+                                                }
                                                 if let Some(tag) = ip_suffix_badge {
                                                     card = card.ip_suffix_badge(tag);
                                                 }
@@ -511,9 +520,48 @@ pub fn render_send_content(
                                             }
                                                 .on_favorite_tap({
                                                     let token = token.clone();
-                                                    move |_device, _window, cx| {
-                                                        home_for_favorite.update(cx, |this, _cx| {
-                                                            this.send_state.toggle_favorite_token(&token);
+                                                    let device_for_favorite = device.clone();
+                                                    let endpoint_for_favorite = endpoint.cloned();
+                                                    move |_device, window, cx| {
+                                                        home_for_favorite.update(cx, |this, cx| {
+                                                            if this.send_state.favorite_tokens.contains(&token) {
+                                                                let alias_for_delete = favorite_device
+                                                                    .as_ref()
+                                                                    .map(|item| item.alias.clone())
+                                                                    .unwrap_or_else(|| {
+                                                                        device_for_favorite.alias
+                                                                            .clone()
+                                                                    });
+                                                                this.open_confirm_remove_favorite_dialog(
+                                                                    token.clone(),
+                                                                    alias_for_delete,
+                                                                    window,
+                                                                    cx,
+                                                                );
+                                                                return;
+                                                            }
+                                                            let Some(endpoint) = endpoint_for_favorite.clone() else {
+                                                                this.open_simple_notice_dialog(
+                                                                    "当前设备地址不可用，暂时无法添加到收藏夹。",
+                                                                    window,
+                                                                    cx,
+                                                                );
+                                                                return;
+                                                            };
+                                                            this.open_edit_favorite_dialog(
+                                                                Some(
+                                                                    super::send_state::FavoriteDevice {
+                                                                        token: token.clone(),
+                                                                        alias: device_for_favorite.alias.clone(),
+                                                                        ip: endpoint.ip,
+                                                                        port: endpoint.port,
+                                                                        https: endpoint.https,
+                                                                        custom_alias: false,
+                                                                    },
+                                                                ),
+                                                                window,
+                                                                cx,
+                                                            );
                                                         });
                                                     }
                                                 })

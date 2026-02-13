@@ -140,6 +140,21 @@ pub async fn scan_local_network(
     out
 }
 
+pub async fn probe_device(
+    ip: &str,
+    port: u16,
+    https: bool,
+    self_fingerprint: Option<String>,
+) -> Option<DiscoveredDevice> {
+    let client = reqwest::Client::builder()
+        .danger_accept_invalid_certs(true)
+        .timeout(Duration::from_secs(2))
+        .build()
+        .ok()?;
+    let own = self_fingerprint.unwrap_or_default();
+    scan_one_ip(&client, ip, port, https, &own).await
+}
+
 async fn scan_one_ip(
     client: &reqwest::Client,
     ip: &str,

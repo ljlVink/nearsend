@@ -21,6 +21,24 @@ pub enum ColorMode {
     Oled,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SendModeSetting {
+    #[default]
+    Single,
+    Multiple,
+    Link,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum NetworkFilterMode {
+    #[default]
+    All,
+    Whitelist,
+    Blacklist,
+}
+
 /// Settings tab state
 #[derive(Serialize, Deserialize)]
 #[serde(default)]
@@ -38,6 +56,7 @@ pub struct SettingsPageState {
     pub save_to_gallery: bool,
     pub auto_finish: bool,
     pub save_to_history: bool,
+    pub send_mode_default: SendModeSetting,
     pub share_via_link_auto_accept: bool,
     #[serde(skip)]
     pub server_running: bool,
@@ -48,6 +67,8 @@ pub struct SettingsPageState {
     pub device_type: String,
     pub device_model: String,
     pub network_filtered: bool,
+    pub network_filter_mode: NetworkFilterMode,
+    pub network_filters: Vec<String>,
     pub discovery_timeout: u32,
     pub encryption: bool,
     pub multicast_group: String,
@@ -108,6 +129,7 @@ impl Default for SettingsPageState {
             save_to_gallery: true,
             auto_finish: true,
             save_to_history: true,
+            send_mode_default: SendModeSetting::Single,
             share_via_link_auto_accept: false,
             server_running: false,
             server_paused: false,
@@ -116,6 +138,8 @@ impl Default for SettingsPageState {
             device_type: "Desktop".to_string(),
             device_model: "".to_string(),
             network_filtered: false,
+            network_filter_mode: NetworkFilterMode::All,
+            network_filters: Vec::new(),
             discovery_timeout: 900,
             encryption: false,
             multicast_group: "224.0.0.167".to_string(),

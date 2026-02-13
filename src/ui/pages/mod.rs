@@ -4,6 +4,7 @@ pub mod progress;
 pub mod receive_dialog;
 pub mod receive_incoming;
 pub mod selected_files;
+pub mod web_send;
 
 pub use history::HistoryPage;
 pub use home::{
@@ -14,3 +15,4 @@ pub use progress::ProgressPage;
 pub use receive_dialog::ReceiveDialog;
 pub use receive_incoming::ReceiveIncomingPage;
 pub use selected_files::SelectedFilesPage;
+pub use web_send::WebSendPage;

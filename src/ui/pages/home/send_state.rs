@@ -54,6 +54,23 @@ pub struct DeviceEndpoint {
     pub https: bool,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FavoriteDevice {
+    pub token: String,
+    pub alias: String,
+    pub ip: String,
+    pub port: u16,
+    #[serde(default)]
+    pub https: bool,
+    #[serde(default)]
+    pub custom_alias: bool,
+}
+
+struct LoadedFavorites {
+    tokens: HashSet<String>,
+    devices: HashMap<String, FavoriteDevice>,
+}
+
 /// Send tab state
 pub struct SendPageState {
     pub selected_files: Vec<SelectedFileInfo>,
@@ -74,30 +91,50 @@ pub struct SendPageState {
     pub session_status_text: Option<String>,
     pub has_scanned_once: bool,
     pub favorite_tokens: HashSet<String>,
+    pub favorite_devices: HashMap<String, FavoriteDevice>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
 #[serde(default)]
 struct FavoritesData {
     favorite_tokens: Vec<String>,
+    favorite_devices: Vec<FavoriteDevice>,
 }
 
-fn load_favorite_tokens() -> HashSet<String> {
+fn load_favorites() -> LoadedFavorites {
     let path = crate::platform::preferences_path::get_preferences_file_path("favorites.json");
     let Ok(raw) = std::fs::read_to_string(&path) else {
-        return HashSet::new();
+        return LoadedFavorites {
+            tokens: HashSet::new(),
+            devices: HashMap::new(),
+        };
     };
     match serde_json::from_str::<FavoritesData>(&raw) {
-        Ok(data) => data.favorite_tokens.into_iter().collect(),
+        Ok(data) => {
+            let mut tokens: HashSet<String> = data.favorite_tokens.into_iter().collect();
+            let mut devices = HashMap::new();
+            for item in data.favorite_devices {
+                if item.token.trim().is_empty() || item.ip.trim().is_empty() || item.port == 0 {
+                    continue;
+                }
+                tokens.insert(item.token.clone());
+                devices.insert(item.token.clone(), item);
+            }
+            LoadedFavorites { tokens, devices }
+        }
         Err(err) => {
             log::warn!("failed to parse favorites file {}: {}", path.display(), err);
-            HashSet::new()
+            LoadedFavorites {
+                tokens: HashSet::new(),
+                devices: HashMap::new(),
+            }
         }
     }
 }
 
 impl Default for SendPageState {
     fn default() -> Self {
+        let loaded_favorites = load_favorites();
         Self {
             selected_files: Vec::new(),
             selected_files_total_size: 0,
@@ -116,17 +153,81 @@ impl Default for SendPageState {
             session_status: SendSessionStatus::Idle,
             session_status_text: None,
             has_scanned_once: false,
-            favorite_tokens: load_favorite_tokens(),
+            favorite_tokens: loaded_favorites.tokens,
+            favorite_devices: loaded_favorites.devices,
         }
     }
 }
 
 impl SendPageState {
-    pub fn toggle_favorite_token(&mut self, token: &str) {
-        if !self.favorite_tokens.insert(token.to_string()) {
-            self.favorite_tokens.remove(token);
-        }
+    pub fn remove_favorite_device(&mut self, token: &str) {
+        self.favorite_tokens.remove(token);
+        self.favorite_devices.remove(token);
         self.persist_favorites();
+    }
+
+    pub fn add_or_update_favorite_device(
+        &mut self,
+        token: String,
+        alias: String,
+        ip: String,
+        port: u16,
+        https: bool,
+        custom_alias: bool,
+    ) {
+        if token.trim().is_empty() || ip.trim().is_empty() || port == 0 {
+            return;
+        }
+        self.favorite_tokens.insert(token.clone());
+        self.favorite_devices.insert(
+            token.clone(),
+            FavoriteDevice {
+                token,
+                alias: alias.trim().to_string(),
+                ip: ip.trim().to_string(),
+                port,
+                https,
+                custom_alias,
+            },
+        );
+        self.persist_favorites();
+    }
+
+    pub fn sync_favorite_from_discovered(
+        &mut self,
+        token: &str,
+        discovered_alias: &str,
+        discovered_ip: &str,
+        discovered_port: u16,
+        discovered_https: bool,
+    ) -> bool {
+        if let Some(item) = self.favorite_devices.get_mut(token) {
+            let old_alias = item.alias.clone();
+            let old_ip = item.ip.clone();
+            let old_port = item.port;
+            let old_https = item.https;
+            item.ip = discovered_ip.to_string();
+            item.port = discovered_port;
+            item.https = discovered_https;
+            if !item.custom_alias {
+                item.alias = discovered_alias.to_string();
+            }
+            return old_alias != item.alias
+                || old_ip != item.ip
+                || old_port != item.port
+                || old_https != item.https;
+        }
+        false
+    }
+
+    pub fn persist_favorites_if_dirty(&self) {
+        self.persist_favorites();
+    }
+
+    pub fn favorite_list_sorted(&self) -> Vec<FavoriteDevice> {
+        let mut items: Vec<FavoriteDevice> = self.favorite_devices.values().cloned().collect();
+        items.sort_by(|a, b| a.alias.cmp(&b.alias).then_with(|| a.ip.cmp(&b.ip)));
+        items
     }
 
     fn persist_favorites(&self) {
@@ -144,8 +245,11 @@ impl SendPageState {
 
         let mut tokens: Vec<String> = self.favorite_tokens.iter().cloned().collect();
         tokens.sort_unstable();
+        let mut devices: Vec<FavoriteDevice> = self.favorite_devices.values().cloned().collect();
+        devices.sort_by(|a, b| a.alias.cmp(&b.alias).then_with(|| a.ip.cmp(&b.ip)));
         let payload = FavoritesData {
             favorite_tokens: tokens,
+            favorite_devices: devices,
         };
         let Ok(serialized) = serde_json::to_string_pretty(&payload) else {
             log::warn!("failed to serialize favorites state");

@@ -49,7 +49,10 @@ export default class EntryAbility extends RustAbility {
       options.maxSelectNumber = 500;
       options.authMode = true;
       const result = await documentPicker.select(options);
-      return result ?? [];
+      if (!result || result.length === 0) {
+        return [];
+      }
+      return result;
     } catch (_err) {
       return [];
     }
@@ -63,7 +66,10 @@ export default class EntryAbility extends RustAbility {
       options.authMode = true;
       options.selectMode = picker.DocumentSelectMode.FOLDER;
       const result = await documentPicker.select(options);
-      return result ?? [];
+      if (!result || result.length === 0) {
+        return [];
+      }
+      return result;
     } catch (_err) {
       return [];
     }
@@ -77,7 +83,10 @@ export default class EntryAbility extends RustAbility {
       options.authMode = true;
       options.selectMode = picker.DocumentSelectMode.FOLDER;
       const result = await documentPicker.select(options);
-      return result?.[0] ?? "";
+      if (!result || result.length === 0) {
+        return "";
+      }
+      return result[0];
     } catch (_err) {
       return "";
     }

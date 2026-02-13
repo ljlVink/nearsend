@@ -12,7 +12,9 @@ pub use receive_state::{IncomingTransferRequest, QuickSaveMode, ReceivePageState
 pub use send_state::{
     SelectedFileInfo, SendContentType, SendMode, SendPageState, SendSessionStatus,
 };
-pub use settings_state::{ColorMode, SettingsPageState, ThemeMode};
+pub use settings_state::{
+    ColorMode, NetworkFilterMode, SendModeSetting, SettingsPageState, ThemeMode,
+};
 
 use crate::state::{
     app_state::AppState,
@@ -27,7 +29,8 @@ use gpui_component::button::{Button, ButtonCustomVariant, ButtonVariants as _};
 use gpui_component::input::{Input, InputState};
 use gpui_component::select::{Select, SelectEvent, SelectState};
 use gpui_component::{
-    h_flex, v_flex, ActiveTheme as _, Icon, IndexPath, Sizable as _, StyledExt as _, WindowExt as _,
+    h_flex, v_flex, ActiveTheme as _, Icon, IndexPath, Sizable as _, Size, StyledExt as _,
+    WindowExt as _,
 };
 use gpui_router::RouterState;
 use localsend::http::state::ClientInfo;
@@ -111,6 +114,13 @@ impl HomePage {
             QuickSaveMode::Off
         };
 
+        let mut send_state = SendPageState::default();
+        send_state.send_mode = match settings_state.send_mode_default {
+            SendModeSetting::Single => SendMode::Single,
+            SendModeSetting::Multiple => SendMode::Multiple,
+            SendModeSetting::Link => SendMode::Link,
+        };
+
         Self {
             app_state,
             device_state,
@@ -121,7 +131,7 @@ impl HomePage {
             current_tab: TabType::Receive,
             services_started: false,
             receive_state,
-            send_state: SendPageState::default(),
+            send_state,
             settings_state,
             theme_select: None,
             color_select: None,
@@ -205,6 +215,24 @@ impl gpui::Render for HomePage {
 }
 
 impl HomePage {
+    pub(super) fn send_mode_label(mode: SendMode) -> &'static str {
+        match mode {
+            SendMode::Single => "单设备",
+            SendMode::Multiple => "多设备",
+            SendMode::Link => "链接分享",
+        }
+    }
+
+    pub(super) fn apply_send_mode_default(&mut self, mode: SendMode) {
+        self.send_state.send_mode = mode;
+        self.settings_state.send_mode_default = match mode {
+            SendMode::Single => SendModeSetting::Single,
+            SendMode::Multiple => SendModeSetting::Multiple,
+            SendMode::Link => SendModeSetting::Link,
+        };
+        self.persist_settings();
+    }
+
     pub(crate) fn poll_incoming_events(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let events = crate::core::receive_events::drain_incoming_events();
         if events.is_empty() {
@@ -213,9 +241,12 @@ impl HomePage {
         log::info!("poll_incoming_events: received {} events", events.len());
 
         let mut should_open_receive_page = false;
+        let mut should_auto_finish_receive = false;
         let mut history_entries = Vec::new();
         let settings_quick_save = self.settings_state.quick_save;
         let settings_quick_save_favorites = self.settings_state.quick_save_favorites;
+        let save_to_history = self.settings_state.save_to_history;
+        let auto_finish = self.settings_state.auto_finish;
         let favorite_tokens = self.send_state.favorite_tokens.clone();
 
         self.receive_inbox_state.update(cx, |state, _| {
@@ -283,19 +314,26 @@ impl HomePage {
                                             .duration_since(UNIX_EPOCH)
                                             .map(|d| d.as_secs())
                                             .unwrap_or(0);
-                                        history_entries.push(HistoryEntry {
-                                            id: uuid::Uuid::new_v4().to_string(),
-                                            file_name: item.file_name.clone(),
-                                            file_size: item.size,
-                                            file_path,
-                                            direction: TransferDirection::Receive,
-                                            device_name: active.sender_alias.clone(),
-                                            timestamp,
-                                            status: TransferStatus::Completed,
-                                        });
+                                        if save_to_history {
+                                            history_entries.push(HistoryEntry {
+                                                id: uuid::Uuid::new_v4().to_string(),
+                                                file_name: item.file_name.clone(),
+                                                file_size: item.size,
+                                                file_path,
+                                                direction: TransferDirection::Receive,
+                                                device_name: active.sender_alias.clone(),
+                                                timestamp,
+                                                status: TransferStatus::Completed,
+                                            });
+                                        }
                                     }
                                 }
                             }
+                        }
+                    }
+                    crate::core::receive_events::IncomingTransferEvent::Completed { .. } => {
+                        if auto_finish {
+                            should_auto_finish_receive = true;
                         }
                     }
                     _ => {}
@@ -303,6 +341,15 @@ impl HomePage {
                 state.apply_event(event);
             }
         });
+
+        if should_auto_finish_receive {
+            self.receive_inbox_state
+                .update(cx, |state, _| state.clear());
+            if RouterState::global(cx).location.pathname == "/receive/incoming" {
+                RouterState::global_mut(cx).location.pathname = "/".into();
+                window.refresh();
+            }
+        }
 
         for entry in history_entries {
             let _ = self.history_state.update(cx, |state, _| {
@@ -335,7 +382,7 @@ impl HomePage {
 
     /// Start the HTTP server and discovery service.
     fn start_services(&mut self, cx: &mut Context<Self>) {
-        let local_ips = detect_local_ipv4s();
+        let local_ips = detect_local_ipv4s(&self.settings_state);
         log::info!("near-send local ipv4 candidates: {:?}", local_ips);
         self.receive_state.server_ips = local_ips.clone();
         self.send_state.local_ips = local_ips;
@@ -344,11 +391,13 @@ impl HomePage {
         let token = uuid::Uuid::new_v4().to_string();
         let port = self.receive_state.server_port;
         let use_https = self.settings_state.encryption;
+        let device_model = normalized_device_model(&self.settings_state);
+        let device_type = parse_device_type(&self.settings_state.device_type);
         let client_info = ClientInfo {
             alias: alias.clone(),
             version: "2.1".to_string(),
-            device_model: Some("OpenHarmony".to_string()),
-            device_type: Some(DeviceType::Mobile),
+            device_model: device_model.clone(),
+            device_type,
             token: token.clone(),
         };
 
@@ -367,7 +416,7 @@ impl HomePage {
                 client_info.token,
                 port,
                 use_https,
-                client_info.device_model,
+                device_model,
                 client_info.device_type,
             )
             .await
@@ -387,8 +436,8 @@ impl HomePage {
             .unwrap_or_else(|| ClientInfo {
                 alias: self.settings_state.server_alias.clone(),
                 version: "2.1".to_string(),
-                device_model: Some("OpenHarmony".to_string()),
-                device_type: Some(DeviceType::Mobile),
+                device_model: normalized_device_model(&self.settings_state),
+                device_type: parse_device_type(&self.settings_state.device_type),
                 token: uuid::Uuid::new_v4().to_string(),
             });
 
@@ -423,27 +472,41 @@ impl HomePage {
     }
 
     pub(super) fn sync_server_config_to_runtime(&mut self, cx: &mut Context<Self>) {
+        let local_ips = detect_local_ipv4s(&self.settings_state);
+        self.receive_state.server_ips = local_ips.clone();
+        self.send_state.local_ips = local_ips;
+        self.settings_state.network_filtered = is_network_filter_active(&self.settings_state);
         self.receive_state.server_alias = self.settings_state.server_alias.clone();
         self.receive_state.server_port = self.settings_state.server_port;
         let require_pin = self.settings_state.require_pin;
         let receive_pin = self.settings_state.receive_pin.clone();
         let server_entity = self.app_state.read(cx).server.clone();
         let tokio_handle = self.app_state.read(cx).tokio_handle.clone();
+        let default_save_directory = self
+            .settings_state
+            .destination
+            .as_ref()
+            .map(std::path::PathBuf::from);
         server_entity.update(cx, |server, _| {
             server.set_receive_pin_config(require_pin, receive_pin, &tokio_handle);
+            server.set_default_save_directory(default_save_directory, &tokio_handle);
         });
 
         let alias = self.settings_state.server_alias.clone();
+        let device_model = normalized_device_model(&self.settings_state);
+        let device_type = parse_device_type(&self.settings_state.device_type);
         let app_state_entity = self.app_state.clone();
         app_state_entity.update(cx, |state, _| {
             if let Some(info) = state.client_info.as_mut() {
                 info.alias = alias.clone();
+                info.device_model = device_model.clone();
+                info.device_type = device_type;
             } else {
                 state.client_info = Some(ClientInfo {
                     alias: alias.clone(),
                     version: "2.1".to_string(),
-                    device_model: Some("OpenHarmony".to_string()),
-                    device_type: Some(DeviceType::Mobile),
+                    device_model,
+                    device_type,
                     token: uuid::Uuid::new_v4().to_string(),
                 });
             }
@@ -497,9 +560,20 @@ impl HomePage {
         for info in self.send_state.nearby_devices.iter().cloned() {
             info_map.insert(info.token.clone(), info);
         }
+        let mut favorites_changed = false;
         for d in cached {
             let normalized = Self::normalize_peer_info(d.info, &d.ip, d.port);
+            favorites_changed |= self.send_state.sync_favorite_from_discovered(
+                &normalized.token,
+                &normalized.alias,
+                &d.ip,
+                d.port,
+                d.https,
+            );
             info_map.insert(normalized.token.clone(), normalized);
+        }
+        if favorites_changed {
+            self.send_state.persist_favorites_if_dirty();
         }
         self.send_state.nearby_devices = info_map.into_values().collect();
         self.send_state
@@ -582,9 +656,20 @@ impl HomePage {
                 for info in this.send_state.nearby_devices.iter().cloned() {
                     info_map.insert(info.token.clone(), info);
                 }
+                let mut favorites_changed = false;
                 for d in &discovered {
                     let normalized = Self::normalize_peer_info(d.info.clone(), &d.ip, d.port);
+                    favorites_changed |= this.send_state.sync_favorite_from_discovered(
+                        &normalized.token,
+                        &normalized.alias,
+                        &d.ip,
+                        d.port,
+                        d.https,
+                    );
                     info_map.insert(normalized.token.clone(), normalized);
+                }
+                if favorites_changed {
+                    this.send_state.persist_favorites_if_dirty();
                 }
                 this.send_state.nearby_devices = info_map.into_values().collect();
                 this.send_state
@@ -636,6 +721,441 @@ impl HomePage {
                 .child(div().w_full().text_sm().child(msg.clone()))
                 .alert()
                 .button_props(gpui_component::dialog::DialogButtonProps::default().ok_text("确定"))
+        });
+    }
+
+    pub(super) fn open_favorites_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let favorites = self.send_state.favorite_list_sorted();
+        let home_entity = cx.entity();
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let home_for_add = home_entity.clone();
+            dialog
+                .title("收藏夹")
+                .overlay(true)
+                .w(px(360.))
+                .child(
+                    v_flex()
+                        .w_full()
+                        .gap(px(10.))
+                        .when(favorites.is_empty(), |this| {
+                            this.child(
+                                div()
+                                    .w_full()
+                                    .text_sm()
+                                    .text_color(_cx.theme().muted_foreground)
+                                    .child("暂无收藏设备，可手动添加。"),
+                            )
+                        })
+                        .when(!favorites.is_empty(), |this| {
+                            this.children(favorites.iter().map(|favorite| {
+                                let favorite = favorite.clone();
+                                let home_for_pick = home_entity.clone();
+                                let home_for_edit = home_entity.clone();
+                                let home_for_delete = home_entity.clone();
+                                let favorite_for_edit = favorite.clone();
+                                let favorite_for_delete = favorite.clone();
+                                let row_alias = favorite.alias.clone();
+                                let row_ip = favorite.ip.clone();
+                                let row_port = favorite.port;
+                                let send_ip = row_ip.clone();
+                                let send_alias = row_alias.clone();
+                                let send_token = favorite.token.clone();
+                                let send_https = favorite.https;
+                                let edit_id_token = favorite.token.clone();
+                                let delete_id_token = favorite.token.clone();
+                                v_flex()
+                                    .w_full()
+                                    .gap(px(6.))
+                                    .child(
+                                        Button::new(format!(
+                                            "favorite-device-send-{}-{}",
+                                            row_ip, row_port
+                                        ))
+                                        .custom(
+                                            ButtonCustomVariant::new(_cx)
+                                                .color(_cx.theme().secondary)
+                                                .foreground(_cx.theme().foreground)
+                                                .hover(_cx.theme().secondary)
+                                                .active(_cx.theme().secondary),
+                                        )
+                                        .w_full()
+                                        .h(px(48.))
+                                        .rounded_md()
+                                        .on_click(move |_event, window, cx| {
+                                            window.close_dialog(cx);
+                                            home_for_pick.update(cx, |this, cx| {
+                                                this.send_state.target_device = None;
+                                                this.send_to_favorite_device(
+                                                    send_state::FavoriteDevice {
+                                                        token: send_token.clone(),
+                                                        alias: send_alias.clone(),
+                                                        ip: send_ip.clone(),
+                                                        port: row_port,
+                                                        https: send_https,
+                                                        custom_alias: favorite.custom_alias,
+                                                    },
+                                                    window,
+                                                    cx,
+                                                );
+                                            });
+                                        })
+                                        .child(
+                                            h_flex()
+                                                .w_full()
+                                                .justify_between()
+                                                .items_center()
+                                                .child(
+                                                    div()
+                                                        .text_sm()
+                                                        .font_medium()
+                                                        .child(row_alias.clone()),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .text_xs()
+                                                        .text_color(_cx.theme().muted_foreground)
+                                                        .child(format!("{}:{}", row_ip, row_port)),
+                                                ),
+                                        ),
+                                    )
+                                    .child(
+                                        h_flex()
+                                            .w_full()
+                                            .justify_end()
+                                            .gap(px(8.))
+                                            .child(
+                                                Button::new(format!(
+                                                    "favorite-device-edit-{}",
+                                                    edit_id_token
+                                                ))
+                                                .ghost()
+                                                .on_click(move |_event, window, cx| {
+                                                    window.close_dialog(cx);
+                                                    let preset = favorite_for_edit.clone();
+                                                    home_for_edit.update(cx, |this, cx| {
+                                                        this.open_edit_favorite_dialog(
+                                                            Some(preset.clone()),
+                                                            window,
+                                                            cx,
+                                                        );
+                                                    });
+                                                })
+                                                .child("编辑"),
+                                            )
+                                            .child(
+                                                Button::new(format!(
+                                                    "favorite-device-delete-{}",
+                                                    delete_id_token
+                                                ))
+                                                .ghost()
+                                                .on_click(move |_event, window, cx| {
+                                                    window.close_dialog(cx);
+                                                    let token = favorite_for_delete.token.clone();
+                                                    let alias = favorite_for_delete.alias.clone();
+                                                    home_for_delete.update(cx, |this, cx| {
+                                                        this.open_confirm_remove_favorite_dialog(
+                                                            token.clone(),
+                                                            alias.clone(),
+                                                            window,
+                                                            cx,
+                                                        );
+                                                    });
+                                                })
+                                                .child("删除"),
+                                            ),
+                                    )
+                            }))
+                        })
+                        .child(
+                            Button::new("favorites-add-manual")
+                                .primary()
+                                .w_full()
+                                .on_click(move |_event, window, cx| {
+                                    window.close_dialog(cx);
+                                    home_for_add.update(cx, |this, cx| {
+                                        this.open_edit_favorite_dialog(None, window, cx);
+                                    });
+                                })
+                                .child("手动添加收藏设备"),
+                        ),
+                )
+                .alert()
+                .button_props(gpui_component::dialog::DialogButtonProps::default().ok_text("关闭"))
+        });
+    }
+
+    pub(super) fn open_edit_favorite_dialog(
+        &mut self,
+        preset: Option<send_state::FavoriteDevice>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let alias_input = cx.new(|cx| InputState::new(window, cx).placeholder("设备名称（可选）"));
+        let ip_input = cx.new(|cx| InputState::new(window, cx).placeholder("IP 地址"));
+        let port_input = cx.new(|cx| InputState::new(window, cx).placeholder("端口（默认 53317）"));
+        if let Some(ref item) = preset {
+            alias_input.update(cx, |state, cx| {
+                state.set_value(item.alias.clone(), window, cx);
+            });
+            ip_input.update(cx, |state, cx| {
+                state.set_value(item.ip.clone(), window, cx);
+            });
+            port_input.update(cx, |state, cx| {
+                state.set_value(item.port.to_string(), window, cx);
+            });
+        } else {
+            port_input.update(cx, |state, cx| {
+                state.set_value("53317", window, cx);
+            });
+        }
+        let home_entity = cx.entity();
+
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let alias_for_ok = alias_input.clone();
+            let ip_for_ok = ip_input.clone();
+            let port_for_ok = port_input.clone();
+            let home_for_ok = home_entity.clone();
+            let preset_for_ok = preset.clone();
+            let original_alias = preset
+                .as_ref()
+                .map(|item| item.alias.clone())
+                .unwrap_or_default();
+            let original_custom_alias = preset
+                .as_ref()
+                .map(|item| item.custom_alias)
+                .unwrap_or(false);
+            dialog
+                .title(if preset.is_some() {
+                    "编辑收藏设备"
+                } else {
+                    "添加收藏设备"
+                })
+                .overlay(true)
+                .w(px(360.))
+                .child(
+                    v_flex()
+                        .w_full()
+                        .gap(px(10.))
+                        .child(Input::new(&alias_input).appearance(true))
+                        .child(Input::new(&ip_input).appearance(true))
+                        .child(Input::new(&port_input).appearance(true)),
+                )
+                .confirm()
+                .button_props(
+                    gpui_component::dialog::DialogButtonProps::default()
+                        .ok_text("下一步")
+                        .cancel_text("取消"),
+                )
+                .on_ok(move |_event, window, cx| {
+                    let alias = alias_for_ok.read(cx).value().trim().to_string();
+                    let ip = ip_for_ok.read(cx).value().trim().to_string();
+                    let raw_port = port_for_ok.read(cx).value().trim().to_string();
+                    if ip.is_empty() {
+                        home_for_ok.update(cx, |this, cx| {
+                            this.open_simple_notice_dialog("IP 地址不能为空", window, cx);
+                        });
+                        return false;
+                    }
+                    let Ok(port) = raw_port.parse::<u16>() else {
+                        home_for_ok.update(cx, |this, cx| {
+                            this.open_simple_notice_dialog("端口必须是 1-65535 的数字", window, cx);
+                        });
+                        return false;
+                    };
+                    if port == 0 {
+                        home_for_ok.update(cx, |this, cx| {
+                            this.open_simple_notice_dialog("端口必须是 1-65535 的数字", window, cx);
+                        });
+                        return false;
+                    }
+                    let token = if let Some(item) = &preset_for_ok {
+                        item.token.clone()
+                    } else {
+                        format!("manual:{}:{}", ip, port)
+                    };
+                    let display_alias = if alias.is_empty() {
+                        ip.clone()
+                    } else {
+                        alias.clone()
+                    };
+                    let https = preset_for_ok
+                        .as_ref()
+                        .map(|item| item.https)
+                        .unwrap_or(false);
+                    let custom_alias = if alias.is_empty() {
+                        false
+                    } else if original_alias.is_empty() {
+                        true
+                    } else {
+                        original_custom_alias || alias != original_alias
+                    };
+                    window.close_dialog(cx);
+                    home_for_ok.update(cx, |this, cx| {
+                        this.open_confirm_add_favorite_dialog(
+                            token,
+                            display_alias,
+                            ip,
+                            port,
+                            https,
+                            custom_alias,
+                            window,
+                            cx,
+                        );
+                    });
+                    true
+                })
+        });
+    }
+
+    fn send_to_favorite_device(
+        &mut self,
+        favorite: send_state::FavoriteDevice,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let home_entity = cx.entity();
+        let window_handle = window.window_handle();
+        let tokio_handle = self.app_state.read(cx).tokio_handle.clone();
+        let self_fingerprint = self
+            .app_state
+            .read(cx)
+            .client_info
+            .as_ref()
+            .map(|v| v.token.clone());
+        let favorite_for_probe = favorite.clone();
+        let join = tokio_handle.spawn(async move {
+            crate::core::discovery::probe_device(
+                &favorite_for_probe.ip,
+                favorite_for_probe.port,
+                favorite_for_probe.https,
+                self_fingerprint,
+            )
+            .await
+        });
+        cx.spawn(async move |_this, cx| {
+            let probe_result = match join.await {
+                Ok(item) => item,
+                Err(err) => {
+                    log::warn!("favorite probe task failed: {}", err);
+                    None
+                }
+            };
+            let _ = window_handle.update(cx, |_, window, cx| {
+                let _ = home_entity.update(cx, |this, cx| {
+                    if probe_result.is_none() {
+                        this.open_simple_notice_dialog(
+                            "收藏设备暂不可达，请确认设备在线并在同一网络。",
+                            window,
+                            cx,
+                        );
+                        return;
+                    }
+                    this.execute_send(favorite.ip.clone(), favorite.port, window, cx);
+                });
+            });
+        })
+        .detach();
+    }
+
+    pub(super) fn open_confirm_remove_favorite_dialog(
+        &mut self,
+        token: String,
+        alias: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let home_entity = cx.entity();
+        let display_name = if alias.trim().is_empty() {
+            "该设备".to_string()
+        } else {
+            alias
+        };
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let home_for_ok = home_entity.clone();
+            let token_for_ok = token.clone();
+            dialog
+                .title("删除收藏")
+                .overlay(true)
+                .w(px(340.))
+                .child(
+                    div()
+                        .w_full()
+                        .text_sm()
+                        .child(format!("确认将 \"{}\" 从收藏夹移除吗？", display_name)),
+                )
+                .confirm()
+                .button_props(
+                    gpui_component::dialog::DialogButtonProps::default()
+                        .ok_text("删除")
+                        .cancel_text("取消"),
+                )
+                .on_ok(move |_event, _window, cx| {
+                    home_for_ok.update(cx, |this, _cx| {
+                        this.send_state.remove_favorite_device(&token_for_ok);
+                    });
+                    true
+                })
+        });
+    }
+
+    pub(super) fn open_confirm_add_favorite_dialog(
+        &mut self,
+        token: String,
+        alias: String,
+        ip: String,
+        port: u16,
+        https: bool,
+        custom_alias: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let home_entity = cx.entity();
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let home_for_ok = home_entity.clone();
+            let alias_text = if alias.trim().is_empty() {
+                ip.clone()
+            } else {
+                alias.clone()
+            };
+            let token_for_ok = token.clone();
+            let alias_for_ok = alias_text.clone();
+            let ip_for_ok = ip.clone();
+            dialog
+                .title("确认添加收藏")
+                .overlay(true)
+                .w(px(360.))
+                .child(
+                    v_flex()
+                        .w_full()
+                        .gap(px(8.))
+                        .child(div().text_sm().child(format!("设备名：{}", alias_text)))
+                        .child(div().text_sm().child(format!("地址：{}:{}", ip, port)))
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(_cx.theme().muted_foreground)
+                                .child("请确认设备信息后再添加。"),
+                        ),
+                )
+                .confirm()
+                .button_props(
+                    gpui_component::dialog::DialogButtonProps::default()
+                        .ok_text("添加")
+                        .cancel_text("取消"),
+                )
+                .on_ok(move |_event, _window, cx| {
+                    home_for_ok.update(cx, |this, _cx| {
+                        this.send_state.add_or_update_favorite_device(
+                            token_for_ok.clone(),
+                            alias_for_ok.clone(),
+                            ip_for_ok.clone(),
+                            port,
+                            https,
+                            custom_alias,
+                        );
+                    });
+                    true
+                })
         });
     }
 
@@ -946,24 +1466,262 @@ impl HomePage {
         });
     }
 
+    pub(super) fn open_send_mode_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let current_mode = self.send_state.send_mode;
+        let home_entity = cx.entity();
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let home_single = home_entity.clone();
+            let home_multiple = home_entity.clone();
+            let home_link = home_entity.clone();
+            dialog
+                .title("发送模式")
+                .overlay(true)
+                .w(px(320.))
+                .child(
+                    v_flex()
+                        .w_full()
+                        .gap(px(8.))
+                        .child(
+                            Button::new("send-mode-single")
+                                .with_variant(gpui_component::button::ButtonVariant::Secondary)
+                                .outline()
+                                .w_full()
+                                .on_click(move |_event, window, cx| {
+                                    let _ = home_single.update(cx, |this, _| {
+                                        this.apply_send_mode_default(SendMode::Single);
+                                    });
+                                    window.close_dialog(cx);
+                                })
+                                .child(
+                                    h_flex()
+                                        .w_full()
+                                        .justify_between()
+                                        .items_center()
+                                        .child(div().text_sm().child("单接收者"))
+                                        .child(if matches!(current_mode, SendMode::Single) {
+                                            Icon::default()
+                                                .path("icons/check.svg")
+                                                .with_size(Size::Small)
+                                        } else {
+                                            Icon::default()
+                                                .path("icons/more-horizontal.svg")
+                                                .with_size(Size::Small)
+                                                .text_color(_cx.theme().muted_foreground)
+                                        }),
+                                ),
+                        )
+                        .child(
+                            Button::new("send-mode-multiple")
+                                .with_variant(gpui_component::button::ButtonVariant::Secondary)
+                                .outline()
+                                .w_full()
+                                .on_click(move |_event, window, cx| {
+                                    let _ = home_multiple.update(cx, |this, _| {
+                                        this.apply_send_mode_default(SendMode::Multiple);
+                                    });
+                                    window.close_dialog(cx);
+                                })
+                                .child(
+                                    h_flex()
+                                        .w_full()
+                                        .justify_between()
+                                        .items_center()
+                                        .child(div().text_sm().child("多个接收者"))
+                                        .child(if matches!(current_mode, SendMode::Multiple) {
+                                            Icon::default()
+                                                .path("icons/check.svg")
+                                                .with_size(Size::Small)
+                                        } else {
+                                            Icon::default()
+                                                .path("icons/more-horizontal.svg")
+                                                .with_size(Size::Small)
+                                                .text_color(_cx.theme().muted_foreground)
+                                        }),
+                                ),
+                        )
+                        .child(
+                            Button::new("send-mode-link")
+                                .with_variant(gpui_component::button::ButtonVariant::Secondary)
+                                .outline()
+                                .w_full()
+                                .on_click(move |_event, window, cx| {
+                                    let mut can_open = false;
+                                    let _ = home_link.update(cx, |this, cx| {
+                                        if !this.ensure_has_selected_files(window, cx) {
+                                            return;
+                                        }
+                                        this.apply_send_mode_default(SendMode::Link);
+                                        can_open = true;
+                                    });
+                                    if can_open {
+                                        window.close_dialog(cx);
+                                        RouterState::global_mut(cx).location.pathname =
+                                            "/send/link".into();
+                                        window.refresh();
+                                    }
+                                })
+                                .child(
+                                    h_flex()
+                                        .w_full()
+                                        .justify_between()
+                                        .items_center()
+                                        .child(div().text_sm().child("通过分享链接发送"))
+                                        .child(if matches!(current_mode, SendMode::Link) {
+                                            Icon::default()
+                                                .path("icons/check.svg")
+                                                .with_size(Size::Small)
+                                        } else {
+                                            Icon::default()
+                                                .path("icons/more-horizontal.svg")
+                                                .with_size(Size::Small)
+                                                .text_color(_cx.theme().muted_foreground)
+                                        }),
+                                ),
+                        ),
+                )
+                .alert()
+                .button_props(gpui_component::dialog::DialogButtonProps::default().ok_text("关闭"))
+        });
+    }
+
     pub(super) fn cycle_send_mode(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.send_state.send_mode = match self.send_state.send_mode {
+        let next_mode = match self.send_state.send_mode {
             SendMode::Single => SendMode::Multiple,
             SendMode::Multiple => SendMode::Link,
             SendMode::Link => SendMode::Single,
         };
-        let mode_text = match self.send_state.send_mode {
+        let mode_text = match next_mode {
             SendMode::Single => "单设备发送模式",
             SendMode::Multiple => "多设备发送模式（基础）",
-            SendMode::Link => "链接分享模式（即将接入）",
+            SendMode::Link => "链接分享模式",
         };
-        if matches!(self.send_state.send_mode, SendMode::Link)
-            && !self.ensure_has_selected_files(window, cx)
-        {
-            self.send_state.send_mode = SendMode::Single;
+        if matches!(next_mode, SendMode::Link) && !self.ensure_has_selected_files(window, cx) {
             return;
         }
-        self.open_simple_notice_dialog(mode_text, window, cx);
+        self.apply_send_mode_default(next_mode);
+        if matches!(next_mode, SendMode::Link) {
+            RouterState::global_mut(cx).location.pathname = "/send/link".into();
+            window.refresh();
+        } else {
+            self.open_simple_notice_dialog(mode_text, window, cx);
+        }
+    }
+
+    fn open_share_link_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let mut entries = Vec::new();
+        for file in &self.send_state.selected_files {
+            if let Some(text) = &file.text_content {
+                entries.push(crate::core::share_links::SharedEntry::Text {
+                    name: if file.name.is_empty() {
+                        "message.txt".to_string()
+                    } else {
+                        file.name.clone()
+                    },
+                    content: text.clone(),
+                });
+            } else {
+                entries.push(crate::core::share_links::SharedEntry::File {
+                    name: file.name.clone(),
+                    path: file.path.clone(),
+                    file_type: file.file_type.clone(),
+                });
+            }
+        }
+        let Some(share_id) = crate::core::share_links::create_share(entries) else {
+            self.open_simple_notice_dialog("创建分享链接失败。", window, cx);
+            return;
+        };
+        let scheme = if self.settings_state.encryption {
+            "https"
+        } else {
+            "http"
+        };
+        let host = if let Some(ip) = detect_primary_route_ipv4() {
+            ip.to_string()
+        } else if let Some(ip) = self.send_state.local_ips.first() {
+            ip.clone()
+        } else {
+            "127.0.0.1".to_string()
+        };
+        let link = format!(
+            "{}://{}:{}/share/{}",
+            scheme, host, self.settings_state.server_port, share_id
+        );
+
+        let home_entity = cx.entity();
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let home_for_copy = home_entity.clone();
+            let link_for_copy = link.clone();
+            dialog
+                .title("分享链接")
+                .overlay(true)
+                .w(px(380.))
+                .child(
+                    v_flex()
+                        .w_full()
+                        .gap(px(10.))
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(_cx.theme().muted_foreground)
+                                .child("将下方链接分享给对方浏览器下载："),
+                        )
+                        .child(
+                            div()
+                                .w_full()
+                                .rounded_md()
+                                .px(px(10.))
+                                .py(px(8.))
+                                .bg(_cx.theme().muted)
+                                .text_sm()
+                                .child(link.clone()),
+                        )
+                        .child(
+                            Button::new("share-link-copy")
+                                .primary()
+                                .on_click(move |_event, window, cx| {
+                                    let link_text = link_for_copy.clone();
+                                    home_for_copy.update(cx, |this, cx| {
+                                        let window_handle = window.window_handle();
+                                        let home_entity = cx.entity();
+                                        let tokio_handle =
+                                            this.app_state.read(cx).tokio_handle.clone();
+                                        let join = tokio_handle.spawn(async move {
+                                            crate::platform::clipboard::write_clipboard_text(
+                                                link_text,
+                                            )
+                                            .await
+                                            .unwrap_or(false)
+                                        });
+                                        cx.spawn(async move |_this, cx| {
+                                            let copied = join.await.unwrap_or(false);
+                                            let _ = window_handle.update(cx, |_, window, cx| {
+                                                let _ = home_entity.update(cx, |this, cx| {
+                                                    if copied {
+                                                        this.open_simple_notice_dialog(
+                                                            "链接已复制到剪贴板。",
+                                                            window,
+                                                            cx,
+                                                        );
+                                                    } else {
+                                                        this.open_simple_notice_dialog(
+                                                            "复制失败，请手动复制链接。",
+                                                            window,
+                                                            cx,
+                                                        );
+                                                    }
+                                                });
+                                            });
+                                        })
+                                        .detach();
+                                    });
+                                })
+                                .child("复制链接"),
+                        ),
+                )
+                .alert()
+                .button_props(gpui_component::dialog::DialogButtonProps::default().ok_text("关闭"))
+        });
     }
 
     fn init_select_states(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1311,6 +2069,253 @@ impl HomePage {
                     }
                     home_for_ok.update(cx, |this, cx| {
                         this.settings_state.receive_pin = pin.clone();
+                        this.sync_server_config_to_runtime(cx);
+                        this.persist_settings();
+                    });
+                    true
+                })
+        });
+    }
+
+    pub(super) fn pick_receive_destination(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let window_handle = window.window_handle();
+        let home_entity = cx.entity();
+        let tokio_handle = self.app_state.read(cx).tokio_handle.clone();
+        let join = tokio_handle
+            .spawn(async move { crate::platform::file_picker::pick_save_directory().await });
+        cx.spawn(async move |_this, cx| {
+            let picked = match join.await {
+                Ok(Ok(path)) => path,
+                Ok(Err(err)) => {
+                    log::error!("pick receive destination failed: {}", err);
+                    None
+                }
+                Err(err) => {
+                    log::error!("pick receive destination task failed: {}", err);
+                    None
+                }
+            };
+            if let Some(path) = picked {
+                let path_text = path.to_string_lossy().to_string();
+                let _ = home_entity.update(cx, |this, cx| {
+                    this.settings_state.destination = Some(path_text);
+                    this.sync_server_config_to_runtime(cx);
+                    this.persist_settings();
+                });
+            } else {
+                let _ = window_handle.update(cx, |_, window, cx| {
+                    let _ = home_entity.update(cx, |this, cx| {
+                        this.open_simple_notice_dialog(
+                            "未选择接收目录，保持当前配置。",
+                            window,
+                            cx,
+                        );
+                    });
+                });
+            }
+        })
+        .detach();
+    }
+
+    pub(super) fn clear_receive_destination(&mut self, cx: &mut Context<Self>) {
+        self.settings_state.destination = None;
+        self.sync_server_config_to_runtime(cx);
+        self.persist_settings();
+    }
+
+    pub(super) fn cycle_device_type_setting(&mut self, cx: &mut Context<Self>) {
+        let next = match normalize_device_type_label(&self.settings_state.device_type).as_str() {
+            "mobile" => "Desktop",
+            "desktop" => "Web",
+            "web" => "Server",
+            "server" => "Headless",
+            _ => "Mobile",
+        };
+        self.settings_state.device_type = next.to_string();
+        self.sync_server_config_to_runtime(cx);
+        self.persist_settings();
+    }
+
+    pub(super) fn open_device_model_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let input_state =
+            cx.new(|cx| InputState::new(window, cx).placeholder("输入设备型号（可选）"));
+        let current = self.settings_state.device_model.clone();
+        input_state.update(cx, |state, cx| {
+            state.set_value(current, window, cx);
+        });
+        let home_entity = cx.entity();
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let input_for_ok = input_state.clone();
+            let home_for_ok = home_entity.clone();
+            dialog
+                .title("设备型号")
+                .overlay(true)
+                .w(px(340.))
+                .child(
+                    div()
+                        .w_full()
+                        .child(Input::new(&input_state).appearance(true).large()),
+                )
+                .confirm()
+                .button_props(
+                    gpui_component::dialog::DialogButtonProps::default()
+                        .ok_text("保存")
+                        .cancel_text("取消"),
+                )
+                .on_ok(move |_event, _window, cx| {
+                    let value = input_for_ok.read(cx).value().trim().to_string();
+                    home_for_ok.update(cx, |this, cx| {
+                        this.settings_state.device_model = value;
+                        this.sync_server_config_to_runtime(cx);
+                        this.persist_settings();
+                    });
+                    true
+                })
+        });
+    }
+
+    pub(super) fn open_discovery_timeout_dialog(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let input_state =
+            cx.new(|cx| InputState::new(window, cx).placeholder("输入发现超时（毫秒）"));
+        let current = self.settings_state.discovery_timeout.to_string();
+        input_state.update(cx, |state, cx| {
+            state.set_value(current, window, cx);
+        });
+        let home_entity = cx.entity();
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let input_for_ok = input_state.clone();
+            let home_for_ok = home_entity.clone();
+            dialog
+                .title("发现超时")
+                .overlay(true)
+                .w(px(340.))
+                .child(
+                    div()
+                        .w_full()
+                        .child(Input::new(&input_state).appearance(true).large()),
+                )
+                .confirm()
+                .button_props(
+                    gpui_component::dialog::DialogButtonProps::default()
+                        .ok_text("保存")
+                        .cancel_text("取消"),
+                )
+                .on_ok(move |_event, window, cx| {
+                    let raw = input_for_ok.read(cx).value().trim().to_string();
+                    let Ok(value) = raw.parse::<u32>() else {
+                        home_for_ok.update(cx, |this, cx| {
+                            this.open_simple_notice_dialog("请输入有效数字", window, cx);
+                        });
+                        return false;
+                    };
+                    home_for_ok.update(cx, |this, cx| {
+                        this.settings_state.discovery_timeout = value.max(200);
+                        this.persist_settings();
+                    });
+                    true
+                })
+        });
+    }
+
+    pub(super) fn open_multicast_group_dialog(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let input_state = cx.new(|cx| InputState::new(window, cx).placeholder("输入组播地址"));
+        let current = self.settings_state.multicast_group.clone();
+        input_state.update(cx, |state, cx| {
+            state.set_value(current, window, cx);
+        });
+        let home_entity = cx.entity();
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let input_for_ok = input_state.clone();
+            let home_for_ok = home_entity.clone();
+            dialog
+                .title("组播地址")
+                .overlay(true)
+                .w(px(340.))
+                .child(
+                    div()
+                        .w_full()
+                        .child(Input::new(&input_state).appearance(true).large()),
+                )
+                .confirm()
+                .button_props(
+                    gpui_component::dialog::DialogButtonProps::default()
+                        .ok_text("保存")
+                        .cancel_text("取消"),
+                )
+                .on_ok(move |_event, window, cx| {
+                    let raw = input_for_ok.read(cx).value().trim().to_string();
+                    if raw.is_empty() {
+                        home_for_ok.update(cx, |this, cx| {
+                            this.open_simple_notice_dialog("组播地址不能为空", window, cx);
+                        });
+                        return false;
+                    }
+                    home_for_ok.update(cx, |this, cx| {
+                        this.settings_state.multicast_group = raw;
+                        this.persist_settings();
+                    });
+                    true
+                })
+        });
+    }
+
+    pub(super) fn cycle_network_filter_mode(&mut self, cx: &mut Context<Self>) {
+        self.settings_state.network_filter_mode = match self.settings_state.network_filter_mode {
+            NetworkFilterMode::All => NetworkFilterMode::Whitelist,
+            NetworkFilterMode::Whitelist => NetworkFilterMode::Blacklist,
+            NetworkFilterMode::Blacklist => NetworkFilterMode::All,
+        };
+        self.sync_server_config_to_runtime(cx);
+        self.persist_settings();
+    }
+
+    pub(super) fn open_network_filters_dialog(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let input_state =
+            cx.new(|cx| InputState::new(window, cx).placeholder("每行一个规则：192.168.1.*"));
+        let current = self.settings_state.network_filters.join("\n");
+        input_state.update(cx, |state, cx| {
+            state.set_value(current, window, cx);
+        });
+        let home_entity = cx.entity();
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let input_for_ok = input_state.clone();
+            let home_for_ok = home_entity.clone();
+            dialog
+                .title("网络接口过滤规则")
+                .overlay(true)
+                .w(px(380.))
+                .child(
+                    div()
+                        .w_full()
+                        .child(Input::new(&input_state).appearance(true).large()),
+                )
+                .confirm()
+                .button_props(
+                    gpui_component::dialog::DialogButtonProps::default()
+                        .ok_text("保存")
+                        .cancel_text("取消"),
+                )
+                .on_ok(move |_event, _window, cx| {
+                    let raw = input_for_ok.read(cx).value().to_string();
+                    let filters = raw
+                        .lines()
+                        .map(|line| line.trim().to_string())
+                        .filter(|line| !line.is_empty())
+                        .collect::<Vec<_>>();
+                    home_for_ok.update(cx, |this, cx| {
+                        this.settings_state.network_filters = filters;
                         this.sync_server_config_to_runtime(cx);
                         this.persist_settings();
                     });
@@ -2688,7 +3693,7 @@ fn detect_primary_route_ipv4() -> Option<Ipv4Addr> {
     None
 }
 
-fn detect_local_ipv4s() -> Vec<String> {
+fn detect_local_ipv4s(settings: &SettingsPageState) -> Vec<String> {
     let mut local_ips = Vec::<Ipv4Addr>::new();
     if let Ok(interfaces) = if_addrs::get_if_addrs() {
         for iface in interfaces {
@@ -2711,6 +3716,9 @@ fn detect_local_ipv4s() -> Vec<String> {
     let mut out = Vec::new();
     for ip in local_ips {
         let ip_text = ip.to_string();
+        if !ip_matches_network_filters(&ip_text, settings) {
+            continue;
+        }
         if seen.insert(ip_text.clone()) {
             out.push(ip_text);
         }
@@ -2723,6 +3731,67 @@ fn detect_local_ipv4s() -> Vec<String> {
     }
 
     out
+}
+
+fn is_network_filter_active(settings: &SettingsPageState) -> bool {
+    !matches!(settings.network_filter_mode, NetworkFilterMode::All)
+        && !settings.network_filters.is_empty()
+}
+
+fn ip_matches_network_filters(ip: &str, settings: &SettingsPageState) -> bool {
+    if matches!(settings.network_filter_mode, NetworkFilterMode::All)
+        || settings.network_filters.is_empty()
+    {
+        return true;
+    }
+    let matched = settings
+        .network_filters
+        .iter()
+        .any(|rule| wildcard_ip_match(ip, rule));
+    match settings.network_filter_mode {
+        NetworkFilterMode::All => true,
+        NetworkFilterMode::Whitelist => matched,
+        NetworkFilterMode::Blacklist => !matched,
+    }
+}
+
+fn wildcard_ip_match(ip: &str, rule: &str) -> bool {
+    let value = ip.trim();
+    let pattern = rule.trim();
+    if value.is_empty() || pattern.is_empty() {
+        return false;
+    }
+    if pattern == "*" {
+        return true;
+    }
+    if let Some(prefix) = pattern.strip_suffix('*') {
+        return value.starts_with(prefix);
+    }
+    value == pattern
+}
+
+fn normalize_device_type_label(value: &str) -> String {
+    value.trim().to_ascii_lowercase()
+}
+
+fn parse_device_type(value: &str) -> Option<DeviceType> {
+    match normalize_device_type_label(value).as_str() {
+        "mobile" => Some(DeviceType::Mobile),
+        "desktop" => Some(DeviceType::Desktop),
+        "web" => Some(DeviceType::Web),
+        "headless" => Some(DeviceType::Headless),
+        "server" => Some(DeviceType::Server),
+        _ => Some(DeviceType::Desktop),
+    }
+}
+
+fn normalized_device_model(settings: &SettingsPageState) -> Option<String> {
+    let text = settings.device_model.trim();
+    if text.is_empty() {
+        Some("OpenHarmony".to_string())
+    } else {
+        Some(text.to_string())
+    }
 }
 
 fn rank_ipv4_addresses(list: &mut Vec<Ipv4Addr>, primary: Option<Ipv4Addr>) {

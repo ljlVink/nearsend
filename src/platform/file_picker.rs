@@ -190,13 +190,37 @@ pub async fn pick_save_directory() -> Result<Option<PathBuf>> {
     Ok(picker_uri_to_path(&uri))
 }
 
+/// Convert picker output (URI or path) to PathBuf.
+/// On OpenHarmony, prefer `ohos-fileuri-binding` to resolve URIs to native paths.
 pub fn picker_uri_to_path(uri: &str) -> Option<PathBuf> {
     let trimmed = uri.trim();
     if trimmed.is_empty() {
         return None;
     }
-    if let Some(path) = trimmed.strip_prefix("file://") {
+    uri_to_native_path(trimmed)
+}
+
+#[cfg(target_env = "ohos")]
+fn uri_to_native_path(uri: &str) -> Option<PathBuf> {
+    match ohos_fileuri_binding::get_path_from_uri(uri) {
+        Ok(path) => Some(PathBuf::from(path)),
+        Err(err) => {
+            log::warn!(
+                "failed to convert picker uri via ohos-fileuri-binding: {}",
+                err
+            );
+            if let Some(path) = uri.strip_prefix("file://") {
+                return Some(PathBuf::from(path));
+            }
+            Some(PathBuf::from(uri))
+        }
+    }
+}
+
+#[cfg(not(target_env = "ohos"))]
+fn uri_to_native_path(uri: &str) -> Option<PathBuf> {
+    if let Some(path) = uri.strip_prefix("file://") {
         return Some(PathBuf::from(path));
     }
-    Some(PathBuf::from(trimmed))
+    Some(PathBuf::from(uri))
 }

@@ -7,7 +7,7 @@ use base64::Engine as _;
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
-use hyper::http::header::CONTENT_TYPE;
+use hyper::http::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
 use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::{TokioExecutor, TokioIo};
@@ -32,6 +32,7 @@ struct ServerState {
     sessions: Arc<Mutex<HashMap<String, IncomingSession>>>,
     pin_config: Arc<Mutex<ReceivePinConfig>>,
     pin_attempts: Arc<Mutex<HashMap<IpAddr, PinAttemptInfo>>>,
+    default_save_directory: Arc<Mutex<Option<PathBuf>>>,
 }
 
 #[derive(Clone, Debug)]
@@ -160,6 +161,7 @@ pub struct ServerManager {
     port: u16,
     stop_tx: Option<oneshot::Sender<()>>,
     pin_config: Arc<Mutex<ReceivePinConfig>>,
+    default_save_directory: Arc<Mutex<Option<PathBuf>>>,
 }
 
 impl ServerManager {
@@ -171,6 +173,7 @@ impl ServerManager {
                 enabled: false,
                 pin: "123456".to_string(),
             })),
+            default_save_directory: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -198,9 +201,17 @@ impl ServerManager {
 
         let port = self.port;
         let pin_config = self.pin_config.clone();
+        let default_save_directory = self.default_save_directory.clone();
         handle.spawn(async move {
-            if let Err(e) =
-                start_with_port(port, client_info, tls_acceptor, pin_config, stop_rx).await
+            if let Err(e) = start_with_port(
+                port,
+                client_info,
+                tls_acceptor,
+                pin_config,
+                default_save_directory,
+                stop_rx,
+            )
+            .await
             {
                 log::error!("Server error: {}", e);
             }
@@ -234,6 +245,14 @@ impl ServerManager {
         });
     }
 
+    pub fn set_default_save_directory(&mut self, dir: Option<PathBuf>, handle: &Handle) {
+        let config = self.default_save_directory.clone();
+        handle.spawn(async move {
+            let mut current = config.lock().await;
+            *current = dir;
+        });
+    }
+
     pub fn is_running(&self) -> bool {
         self.stop_tx.is_some()
     }
@@ -257,6 +276,7 @@ async fn start_with_port(
     info: ClientInfo,
     tls_acceptor: Option<TlsAcceptor>,
     pin_config: Arc<Mutex<ReceivePinConfig>>,
+    default_save_directory: Arc<Mutex<Option<PathBuf>>>,
     mut stop_rx: oneshot::Receiver<()>,
 ) -> anyhow::Result<()> {
     let listener_v4 = tokio::net::TcpListener::bind((Ipv4Addr::UNSPECIFIED, port)).await?;
@@ -273,6 +293,7 @@ async fn start_with_port(
         sessions: Arc::new(Mutex::new(HashMap::new())),
         pin_config,
         pin_attempts: Arc::new(Mutex::new(HashMap::new())),
+        default_save_directory,
     };
 
     loop {
@@ -391,6 +412,9 @@ async fn handle_request_inner(
         (Method::POST, "/api/localsend/v2/cancel") => handle_cancel(req, state, true).await,
         (Method::POST, "/api/localsend/v1/show") | (Method::POST, "/api/localsend/v2/show") => {
             Ok(json_response(StatusCode::OK, &serde_json::json!({})))
+        }
+        (Method::GET, p) if p.starts_with("/share/") => {
+            handle_share_link(req, state, remote_ip).await
         }
         _ => Ok(json_response(
             StatusCode::NOT_FOUND,
@@ -781,6 +805,9 @@ async fn handle_upload(
         };
         let save_root = if let Some(dir) = session.save_directory.clone() {
             dir
+        } else if let Some(dir) = state.default_save_directory.lock().await.clone() {
+            session.save_directory = Some(dir.clone());
+            dir
         } else {
             let chosen = crate::platform::file_picker::pick_save_directory()
                 .await
@@ -881,6 +908,80 @@ async fn handle_cancel(
         }
     }
     Ok(json_response(StatusCode::OK, &serde_json::json!({})))
+}
+
+async fn handle_share_link(
+    req: Request<Incoming>,
+    state: ServerState,
+    remote_ip: IpAddr,
+) -> Result<Response<Full<Bytes>>, (StatusCode, String)> {
+    let path = req.uri().path().trim_matches('/');
+    let query = parse_query(req.uri().query().unwrap_or_default());
+    check_pin(&state, remote_ip, query.get("pin").map(|v| v.as_str())).await?;
+    let segments: Vec<&str> = path.split('/').collect();
+    if segments.len() < 2 || segments.first() != Some(&"share") {
+        return Err((StatusCode::NOT_FOUND, "Not Found".to_string()));
+    }
+    let share_id = segments[1];
+    let Some(record) = crate::core::share_links::get_share(share_id) else {
+        return Err((StatusCode::NOT_FOUND, "Share link not found".to_string()));
+    };
+
+    if segments.len() == 2 {
+        let mut html = String::new();
+        html.push_str("<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">");
+        html.push_str("<title>NearSend Share</title><style>body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;padding:20px;max-width:680px;margin:auto;}h1{font-size:20px;}li{margin:10px 0;}a{color:#0b65d8;text-decoration:none;}a:hover{text-decoration:underline;}small{color:#777;}</style></head><body>");
+        html.push_str("<h1>NearSend Shared Files</h1><ul>");
+        for (idx, entry) in record.entries.iter().enumerate() {
+            let name = match entry {
+                crate::core::share_links::SharedEntry::File { name, .. } => name,
+                crate::core::share_links::SharedEntry::Text { name, .. } => name,
+            };
+            let safe_name = html_escape(name);
+            html.push_str(&format!(
+                "<li><a href=\"/share/{}/download/{}\">{}</a></li>",
+                record.id, idx, safe_name
+            ));
+        }
+        html.push_str("</ul><small>Powered by NearSend</small></body></html>");
+        return Ok(html_response(StatusCode::OK, html));
+    }
+
+    if segments.len() == 4 && segments[2] == "download" {
+        let Ok(index) = segments[3].parse::<usize>() else {
+            return Err((StatusCode::BAD_REQUEST, "Invalid file index".to_string()));
+        };
+        let Some(entry) = record.entries.get(index) else {
+            return Err((StatusCode::NOT_FOUND, "File not found".to_string()));
+        };
+        match entry {
+            crate::core::share_links::SharedEntry::Text { name, content } => {
+                return Ok(binary_response(
+                    StatusCode::OK,
+                    "text/plain; charset=utf-8",
+                    name,
+                    Bytes::from(content.clone()),
+                ));
+            }
+            crate::core::share_links::SharedEntry::File {
+                name,
+                path,
+                file_type,
+            } => {
+                let bytes = tokio::fs::read(path)
+                    .await
+                    .map_err(|_| (StatusCode::NOT_FOUND, "File no longer exists".to_string()))?;
+                return Ok(binary_response(
+                    StatusCode::OK,
+                    file_type,
+                    name,
+                    Bytes::from(bytes),
+                ));
+            }
+        }
+    }
+
+    Err((StatusCode::NOT_FOUND, "Not Found".to_string()))
 }
 
 async fn parse_json_body<T: serde::de::DeserializeOwned>(
@@ -1051,8 +1152,52 @@ fn json_response<T: serde::Serialize>(status: StatusCode, body: &T) -> Response<
     response
 }
 
+fn html_response(status: StatusCode, html: String) -> Response<Full<Bytes>> {
+    let mut response = Response::new(Full::new(Bytes::new()));
+    *response.status_mut() = status;
+    response.headers_mut().insert(
+        CONTENT_TYPE,
+        hyper::http::HeaderValue::from_static("text/html; charset=utf-8"),
+    );
+    *response.body_mut() = Full::new(Bytes::from(html));
+    response
+}
+
+fn binary_response(
+    status: StatusCode,
+    content_type: &str,
+    file_name: &str,
+    bytes: Bytes,
+) -> Response<Full<Bytes>> {
+    let mut response = Response::new(Full::new(Bytes::new()));
+    *response.status_mut() = status;
+    if let Ok(v) = hyper::http::HeaderValue::from_str(content_type) {
+        response.headers_mut().insert(CONTENT_TYPE, v);
+    } else {
+        response.headers_mut().insert(
+            CONTENT_TYPE,
+            hyper::http::HeaderValue::from_static("application/octet-stream"),
+        );
+    }
+    let safe = file_name.replace('"', "");
+    if let Ok(v) = hyper::http::HeaderValue::from_str(&format!("attachment; filename=\"{}\"", safe))
+    {
+        response.headers_mut().insert(CONTENT_DISPOSITION, v);
+    }
+    *response.body_mut() = Full::new(bytes);
+    response
+}
+
 fn no_content() -> Response<Full<Bytes>> {
     let mut response = Response::new(Full::new(Bytes::new()));
     *response.status_mut() = StatusCode::NO_CONTENT;
     response
+}
+
+fn html_escape(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }

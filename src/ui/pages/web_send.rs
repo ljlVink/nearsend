@@ -1,0 +1,543 @@
+use crate::core::share_links::SharedEntry;
+use crate::ui::pages::HomePage;
+use gpui::{div, prelude::*, px, Context, Entity, Window};
+use gpui_component::input::{Input, InputState};
+use gpui_component::scroll::ScrollableElement as _;
+use gpui_component::{
+    button::{Button, ButtonVariants as _},
+    h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _, Size, StyledExt as _, WindowExt as _,
+};
+use gpui_router::RouterState;
+use qrcodegen::{QrCode, QrCodeEcc};
+
+pub struct WebSendPage {
+    home_entity: Entity<HomePage>,
+    share_links: Vec<String>,
+    share_id: Option<String>,
+    error_text: Option<String>,
+}
+
+impl WebSendPage {
+    pub fn new(home_entity: Entity<HomePage>) -> Self {
+        Self {
+            home_entity,
+            share_links: Vec::new(),
+            share_id: None,
+            error_text: None,
+        }
+    }
+
+    fn build_links_for_home(home: &HomePage, share_id: &str) -> Vec<String> {
+        let scheme = if home.settings_state.encryption {
+            "https"
+        } else {
+            "http"
+        };
+        let mut hosts = home.send_state.local_ips.clone();
+        if hosts.is_empty() {
+            hosts.push("127.0.0.1".to_string());
+        }
+        let pin_query = if home.settings_state.require_pin {
+            let pin = home.settings_state.receive_pin.trim();
+            if pin.is_empty() {
+                String::new()
+            } else {
+                format!("?pin={}", urlencoding::encode(pin))
+            }
+        } else {
+            String::new()
+        };
+        hosts
+            .into_iter()
+            .map(|host| {
+                format!(
+                    "{}://{}:{}/share/{}{}",
+                    scheme, host, home.settings_state.server_port, share_id, pin_query
+                )
+            })
+            .collect()
+    }
+
+    fn refresh_links_from_share_id(&mut self, cx: &mut Context<Self>) {
+        let Some(share_id) = self.share_id.clone() else {
+            self.share_links.clear();
+            return;
+        };
+        let mut links = Vec::new();
+        let _ = self.home_entity.update(cx, |home, _| {
+            links = Self::build_links_for_home(home, &share_id);
+        });
+        self.share_links = links;
+    }
+
+    fn ensure_share_link(&mut self, cx: &mut Context<Self>) {
+        if self.share_id.is_some() || self.error_text.is_some() {
+            return;
+        }
+        let mut generated_id: Option<String> = None;
+        let mut generated_error: Option<String> = None;
+        let _ = self.home_entity.update(cx, |home, _cx| {
+            if home.send_state.selected_files.is_empty() {
+                generated_error = Some("请先选择要发送的文件或文本".to_string());
+                return;
+            }
+            let mut entries = Vec::new();
+            for file in &home.send_state.selected_files {
+                if let Some(text) = &file.text_content {
+                    entries.push(SharedEntry::Text {
+                        name: if file.name.is_empty() {
+                            "message.txt".to_string()
+                        } else {
+                            file.name.clone()
+                        },
+                        content: text.clone(),
+                    });
+                } else {
+                    entries.push(SharedEntry::File {
+                        name: file.name.clone(),
+                        path: file.path.clone(),
+                        file_type: file.file_type.clone(),
+                    });
+                }
+            }
+            let Some(share_id) = crate::core::share_links::create_share(entries) else {
+                generated_error = Some("创建分享链接失败".to_string());
+                return;
+            };
+            generated_id = Some(share_id);
+        });
+        self.share_id = generated_id;
+        self.error_text = generated_error;
+        self.refresh_links_from_share_id(cx);
+    }
+
+    fn regenerate_share_link(&mut self, cx: &mut Context<Self>) {
+        self.share_id = None;
+        self.share_links.clear();
+        self.error_text = None;
+        self.ensure_share_link(cx);
+    }
+
+    fn update_share_link_auto_accept(&mut self, value: bool, cx: &mut Context<Self>) {
+        let _ = self.home_entity.update(cx, |home, _cx| {
+            home.settings_state.share_via_link_auto_accept = value;
+            home.persist_settings();
+        });
+    }
+
+    fn update_require_pin(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        let _ = self.home_entity.update(cx, |home, _cx| {
+            home.settings_state.require_pin = enabled;
+            if enabled && home.settings_state.receive_pin.trim().is_empty() {
+                home.settings_state.receive_pin = "123456".to_string();
+            }
+            home.persist_settings();
+            let require_pin = home.settings_state.require_pin;
+            let receive_pin = home.settings_state.receive_pin.clone();
+            let server_entity = home.app_state.read(_cx).server.clone();
+            let tokio_handle = home.app_state.read(_cx).tokio_handle.clone();
+            server_entity.update(_cx, |server, _| {
+                server.set_receive_pin_config(require_pin, receive_pin, &tokio_handle);
+            });
+        });
+        self.refresh_links_from_share_id(cx);
+    }
+
+    fn update_link_encryption(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        let _ = self.home_entity.update(cx, |home, _cx| {
+            home.settings_state.encryption = enabled;
+            home.persist_settings();
+            home.restart_local_server_with_current_config(_cx);
+        });
+        self.refresh_links_from_share_id(cx);
+    }
+
+    fn open_pin_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder("输入访问 PIN"));
+        let current = self.home_entity.read(cx).settings_state.receive_pin.clone();
+        input.update(cx, |state, cx| state.set_value(current, window, cx));
+        let page = cx.entity();
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let input_for_ok = input.clone();
+            let page_for_ok = page.clone();
+            dialog
+                .title("设置访问 PIN")
+                .overlay(true)
+                .w(px(340.))
+                .child(
+                    div()
+                        .w_full()
+                        .child(Input::new(&input).appearance(true).large()),
+                )
+                .confirm()
+                .button_props(
+                    gpui_component::dialog::DialogButtonProps::default()
+                        .ok_text("保存")
+                        .cancel_text("取消"),
+                )
+                .on_ok(move |_event, window, cx| {
+                    let pin = input_for_ok.read(cx).value().trim().to_string();
+                    if pin.is_empty() {
+                        return false;
+                    }
+                    page_for_ok.update(cx, |this, cx| {
+                        let _ = this.home_entity.update(cx, |home, _cx| {
+                            home.settings_state.receive_pin = pin.clone();
+                            home.settings_state.require_pin = true;
+                            home.persist_settings();
+                            let server_entity = home.app_state.read(_cx).server.clone();
+                            let tokio_handle = home.app_state.read(_cx).tokio_handle.clone();
+                            server_entity.update(_cx, |server, _| {
+                                server.set_receive_pin_config(true, pin.clone(), &tokio_handle);
+                            });
+                        });
+                        this.refresh_links_from_share_id(cx);
+                        window.close_dialog(cx);
+                    });
+                    true
+                })
+        });
+    }
+
+    fn open_notice_dialog(&self, msg: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let text = msg.to_string();
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            dialog
+                .title("提示")
+                .overlay(true)
+                .w(px(320.))
+                .child(div().w_full().text_sm().child(text.clone()))
+                .alert()
+                .button_props(gpui_component::dialog::DialogButtonProps::default().ok_text("确定"))
+        });
+    }
+
+    fn make_ascii_qr(content: &str) -> Option<String> {
+        let qr = QrCode::encode_text(content, QrCodeEcc::Medium).ok()?;
+        let border: i32 = 2;
+        let size = qr.size();
+        let mut out = String::new();
+        let mut y = -border;
+        while y < size + border {
+            let mut x = -border;
+            while x < size + border {
+                let black = qr.get_module(x, y);
+                out.push_str(if black { "##" } else { "  " });
+                x += 1;
+            }
+            out.push('\n');
+            y += 1;
+        }
+        Some(out)
+    }
+
+    fn open_qr_dialog(
+        &self,
+        link: &str,
+        pin_hint: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let content = Self::make_ascii_qr(link).unwrap_or_else(|| "二维码生成失败".to_string());
+        let link_text = link.to_string();
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            dialog
+                .title("分享链接二维码")
+                .overlay(true)
+                .w(px(520.))
+                .child(
+                    v_flex()
+                        .w_full()
+                        .gap(px(8.))
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(_cx.theme().muted_foreground)
+                                .child(link_text.clone()),
+                        )
+                        .child(
+                            div()
+                                .w_full()
+                                .rounded_md()
+                                .bg(_cx.theme().muted)
+                                .p(px(10.))
+                                .text_xs()
+                                .child(content.clone()),
+                        )
+                        .when_some(pin_hint.clone(), |this, pin| {
+                            this.child(
+                                div()
+                                    .text_sm()
+                                    .text_color(_cx.theme().foreground)
+                                    .child(format!("访问 PIN：{}", pin)),
+                            )
+                        }),
+                )
+                .alert()
+                .button_props(gpui_component::dialog::DialogButtonProps::default().ok_text("关闭"))
+        });
+    }
+}
+
+impl gpui::Render for WebSendPage {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.ensure_share_link(cx);
+        let links = self.share_links.clone();
+        let error = self.error_text.clone();
+        let encryption = self.home_entity.read(cx).settings_state.encryption;
+        let auto_accept = self
+            .home_entity
+            .read(cx)
+            .settings_state
+            .share_via_link_auto_accept;
+        let require_pin = self.home_entity.read(cx).settings_state.require_pin;
+        let pin = self.home_entity.read(cx).settings_state.receive_pin.clone();
+
+        v_flex()
+            .size_full()
+            .bg(cx.theme().background)
+            .child(
+                h_flex()
+                    .w_full()
+                    .h(px(56.))
+                    .px(px(15.))
+                    .items_center()
+                    .child(
+                        Button::new("web-send-back")
+                            .ghost()
+                            .child(Icon::default().path("icons/arrow-left.svg").with_size(Size::Small))
+                            .on_click(cx.listener(|_this, _event, window, cx| {
+                                RouterState::global_mut(cx).location.pathname = "/".into();
+                                window.refresh();
+                            })),
+                    )
+                    .child(
+                        h_flex()
+                            .flex_1()
+                            .justify_center()
+                            .child(
+                                div()
+                                    .text_base()
+                                    .font_semibold()
+                                    .text_color(cx.theme().foreground)
+                                    .child("分享链接"),
+                            ),
+                    )
+                    .child(div().w(px(40.))),
+            )
+            .child(
+                div().flex_1().w_full().overflow_y_scrollbar().child(
+                    v_flex()
+                        .w_full()
+                        .px(px(15.))
+                        .py(px(16.))
+                        .gap(px(12.))
+                        .when_some(error.clone(), |this, err| {
+                            this.child(
+                                div()
+                                    .rounded_md()
+                                    .bg(cx.theme().danger.opacity(0.1))
+                                    .px(px(10.))
+                                    .py(px(8.))
+                                    .text_sm()
+                                    .text_color(cx.theme().danger)
+                                    .child(err),
+                            )
+                        })
+                        .when(error.is_none(), |this| {
+                            this.child(
+                                v_flex()
+                                    .gap(px(8.))
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child("将下方链接分享给接收方浏览器："),
+                                    )
+                                    .children(links.iter().enumerate().map(|(index, link)| {
+                                        let copy_link_text = link.clone();
+                                        let qr_link_text = link.clone();
+                                        let button_id = format!("web-send-copy-{}", index);
+                                        let qr_button_id = format!("web-send-qr-{}", index);
+                                        let pin_hint = if require_pin {
+                                            Some(pin.clone())
+                                        } else {
+                                            None
+                                        };
+                                        v_flex()
+                                            .gap(px(6.))
+                                            .child(
+                                                div()
+                                                    .w_full()
+                                                    .rounded_md()
+                                                    .bg(cx.theme().muted)
+                                                    .px(px(10.))
+                                                    .py(px(8.))
+                                                    .text_sm()
+                                                    .child(link.clone()),
+                                            )
+                                            .child(
+                                                h_flex()
+                                                    .justify_end()
+                                                    .gap(px(8.))
+                                                    .child(
+                                                        Button::new(qr_button_id)
+                                                            .outline()
+                                                            .on_click(cx.listener(
+                                                                move |this, _event, window, cx| {
+                                                                    this.open_qr_dialog(
+                                                                        &qr_link_text,
+                                                                        pin_hint.clone(),
+                                                                        window,
+                                                                        cx,
+                                                                    );
+                                                                },
+                                                            ))
+                                                            .child("二维码"),
+                                                    )
+                                                    .child(
+                                                        Button::new(button_id)
+                                                            .primary()
+                                                            .on_click(cx.listener(
+                                                                move |this, _event, window, cx| {
+                                                                    let page = cx.entity();
+                                                                    let window_handle = window.window_handle();
+                                                                    let tokio_handle = this
+                                                                        .home_entity
+                                                                        .read(cx)
+                                                                        .app_state
+                                                                        .read(cx)
+                                                                        .tokio_handle
+                                                                        .clone();
+                                                                    let link_for_copy = copy_link_text.clone();
+                                                                    let join = tokio_handle.spawn(async move {
+                                                                        crate::platform::clipboard::write_clipboard_text(
+                                                                            link_for_copy,
+                                                                        )
+                                                                        .await
+                                                                        .unwrap_or(false)
+                                                                    });
+                                                                    cx.spawn(async move |_this, cx| {
+                                                                        let copied = join.await.unwrap_or(false);
+                                                                        let _ = window_handle.update(cx, |_, window, cx| {
+                                                                            let _ = page.update(cx, |this, _cx| {
+                                                                                this.open_notice_dialog(
+                                                                                    if copied {
+                                                                                        "链接已复制到剪贴板。"
+                                                                                    } else {
+                                                                                        "复制失败，请手动复制链接。"
+                                                                                    },
+                                                                                    window,
+                                                                                    _cx,
+                                                                                );
+                                                                            });
+                                                                        });
+                                                                    })
+                                                                    .detach();
+                                                                },
+                                                            ))
+                                                            .child("复制链接"),
+                                                    ),
+                                            )
+                                    }))
+                                    .child(
+                                        Button::new("web-send-refresh-link")
+                                            .outline()
+                                            .on_click(cx.listener(|this, _event, _window, cx| {
+                                                this.regenerate_share_link(cx);
+                                            }))
+                                            .child("重新生成链接"),
+                                    ),
+                            )
+                        })
+                        .child(
+                            div()
+                                .rounded_lg()
+                                .border_1()
+                                .border_color(cx.theme().border)
+                                .bg(cx.theme().secondary)
+                                .p(px(12.))
+                                .child(
+                                    v_flex()
+                                        .gap(px(10.))
+                                        .child(
+                                            div()
+                                                .text_sm()
+                                                .font_semibold()
+                                                .text_color(cx.theme().foreground)
+                                                .child("访问设置"),
+                                        )
+                                        .child(
+                                            h_flex()
+                                                .justify_between()
+                                                .items_center()
+                                                .child(div().text_sm().child("启用加密 (HTTPS)"))
+                                                .child(
+                                                    div()
+                                                        .id("web-link-enable-encryption")
+                                                        .cursor_pointer()
+                                                        .on_click(cx.listener(move |this, _ev, _w, cx| {
+                                                            this.update_link_encryption(!encryption, cx);
+                                                        }))
+                                                        .child(crate::ui::components::switch::Switch::new(encryption)),
+                                                ),
+                                        )
+                                        .child(
+                                            h_flex()
+                                                .justify_between()
+                                                .items_center()
+                                                .child(div().text_sm().child("分享链接自动接受"))
+                                                .child(
+                                                    div()
+                                                        .id("web-link-auto-accept")
+                                                        .cursor_pointer()
+                                                        .on_click(cx.listener(move |this, _ev, _w, cx| {
+                                                            this.update_share_link_auto_accept(!auto_accept, cx);
+                                                        }))
+                                                        .child(crate::ui::components::switch::Switch::new(auto_accept)),
+                                                ),
+                                        )
+                                        .child(
+                                            h_flex()
+                                                .justify_between()
+                                                .items_center()
+                                                .child(div().text_sm().child("访问需要 PIN"))
+                                                .child(
+                                                    div()
+                                                        .id("web-link-require-pin")
+                                                        .cursor_pointer()
+                                                        .on_click(cx.listener(move |this, _ev, _w, cx| {
+                                                            this.update_require_pin(!require_pin, cx);
+                                                        }))
+                                                        .child(crate::ui::components::switch::Switch::new(require_pin)),
+                                                ),
+                                        )
+                                        .when(require_pin, |this| {
+                                            this.child(
+                                                h_flex()
+                                                    .justify_between()
+                                                    .items_center()
+                                                    .child(
+                                                        div()
+                                                            .text_sm()
+                                                            .text_color(cx.theme().muted_foreground)
+                                                            .child(format!("当前 PIN：{}", pin)),
+                                                    )
+                                                    .child(
+                                                        Button::new("web-link-edit-pin")
+                                                            .ghost()
+                                                            .on_click(cx.listener(
+                                                                |this, _ev, window, cx| {
+                                                                    this.open_pin_dialog(window, cx);
+                                                                },
+                                                            ))
+                                                            .child("编辑"),
+                                                    ),
+                                            )
+                                        }),
+                                ),
+                        ),
+                ),
+            )
+    }
+}

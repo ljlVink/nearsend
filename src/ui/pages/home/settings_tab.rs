@@ -46,7 +46,7 @@ fn render_boolean_entry(
     value: bool,
     id: &str,
     cx: &mut Context<HomePage>,
-    on_toggle: impl Fn(&mut HomePage) + 'static,
+    on_toggle: impl Fn(&mut HomePage, &mut Context<HomePage>) + 'static,
 ) -> AnyElement {
     div()
         .pb(px(15.))
@@ -64,8 +64,8 @@ fn render_boolean_entry(
                     div()
                         .id(id.to_string())
                         .cursor_pointer()
-                        .on_click(cx.listener(move |this, _ev, _win, _cx| {
-                            on_toggle(this);
+                        .on_click(cx.listener(move |this, _ev, _win, cx| {
+                            on_toggle(this, cx);
                         }))
                         .child(Switch::new(value)),
                 ),
@@ -162,8 +162,19 @@ pub fn render_settings_content(
     let server_alias = app.settings_state.server_alias.clone();
     let server_port = app.settings_state.server_port;
     let network_filtered = app.settings_state.network_filtered;
-
-    // "发送" 能力暂未支持，先在设置页隐藏。
+    let send_mode_text = HomePage::send_mode_label(app.send_state.send_mode).to_string();
+    let share_link_auto_accept = app.settings_state.share_via_link_auto_accept;
+    let quick_save = app.settings_state.quick_save;
+    let quick_save_favorites = app.settings_state.quick_save_favorites;
+    let destination_text = app
+        .settings_state
+        .destination
+        .as_ref()
+        .map(|p| p.as_str())
+        .unwrap_or("系统选择");
+    let save_to_gallery = app.settings_state.save_to_gallery;
+    let auto_finish = app.settings_state.auto_finish;
+    let save_to_history = app.settings_state.save_to_history;
 
     // -- Receive section --
     let require_pin = app.settings_state.require_pin;
@@ -206,11 +217,123 @@ pub fn render_settings_content(
             this.open_receive_pin_dialog(window, cx);
         },
     );
-    let mut receive_children: Vec<AnyElement> = vec![r1];
+    let quick_save_entry = render_boolean_entry(
+        "自动接受(全部)",
+        quick_save,
+        "toggle-quick-save",
+        cx,
+        |this, _cx| {
+            this.settings_state.quick_save = !this.settings_state.quick_save;
+            if this.settings_state.quick_save {
+                this.settings_state.quick_save_favorites = false;
+                this.receive_state.quick_save_mode = super::QuickSaveMode::On;
+            } else if !this.settings_state.quick_save_favorites {
+                this.receive_state.quick_save_mode = super::QuickSaveMode::Off;
+            }
+            this.persist_settings();
+        },
+    );
+    let quick_save_fav_entry = render_boolean_entry(
+        "自动接受(仅收藏夹)",
+        quick_save_favorites,
+        "toggle-quick-save-favorites",
+        cx,
+        |this, _cx| {
+            this.settings_state.quick_save_favorites = !this.settings_state.quick_save_favorites;
+            if this.settings_state.quick_save_favorites {
+                this.settings_state.quick_save = false;
+                this.receive_state.quick_save_mode = super::QuickSaveMode::Favorites;
+            } else if !this.settings_state.quick_save {
+                this.receive_state.quick_save_mode = super::QuickSaveMode::Off;
+            }
+            this.persist_settings();
+        },
+    );
+    let destination_entry = render_clickable_entry(
+        "接收目录",
+        destination_text,
+        "destination-input",
+        cx,
+        |this, window, cx| {
+            this.pick_receive_destination(window, cx);
+        },
+    );
+    let clear_destination_entry = render_clickable_entry(
+        "重置接收目录",
+        "恢复默认",
+        "destination-clear",
+        cx,
+        |this, _window, cx| {
+            this.clear_receive_destination(cx);
+        },
+    );
+    let save_to_gallery_entry = render_boolean_entry(
+        "保存到相册",
+        save_to_gallery,
+        "toggle-save-to-gallery",
+        cx,
+        |this, _cx| {
+            this.settings_state.save_to_gallery = !this.settings_state.save_to_gallery;
+            this.persist_settings();
+        },
+    );
+    let auto_finish_entry = render_boolean_entry(
+        "自动完成",
+        auto_finish,
+        "toggle-auto-finish",
+        cx,
+        |this, _cx| {
+            this.settings_state.auto_finish = !this.settings_state.auto_finish;
+            this.persist_settings();
+        },
+    );
+    let save_to_history_entry = render_boolean_entry(
+        "保存到历史",
+        save_to_history,
+        "toggle-save-to-history",
+        cx,
+        |this, _cx| {
+            this.settings_state.save_to_history = !this.settings_state.save_to_history;
+            this.persist_settings();
+        },
+    );
+    let mut receive_children: Vec<AnyElement> = vec![
+        r1,
+        quick_save_entry,
+        quick_save_fav_entry,
+        destination_entry,
+        clear_destination_entry,
+        save_to_gallery_entry,
+        auto_finish_entry,
+        save_to_history_entry,
+    ];
     if require_pin {
         receive_children.push(r2);
     }
     let receive = render_settings_section("接收", cx, receive_children);
+
+    // -- Send section (align with LocalSend advanced settings) --
+    let send_mode = render_clickable_entry(
+        "默认发送模式",
+        &send_mode_text,
+        "send-mode-default",
+        cx,
+        |this, window, cx| {
+            this.open_send_mode_dialog(window, cx);
+        },
+    );
+    let share_link = render_boolean_entry(
+        "分享链接自动接受",
+        share_link_auto_accept,
+        "toggle-share-link-auto-accept",
+        cx,
+        |this, _cx| {
+            this.settings_state.share_via_link_auto_accept =
+                !this.settings_state.share_via_link_auto_accept;
+            this.persist_settings();
+        },
+    );
+    let send = render_settings_section("发送", cx, vec![send_mode, share_link]);
 
     // -- Network section --
     let server_label_text = format!("服务器{}", if server_running { "" } else { " (离线)" });
@@ -315,21 +438,83 @@ pub fn render_settings_content(
     );
     let mut network_children: Vec<AnyElement> = vec![server_controls, n1, n2];
     if advanced {
+        let device_type_entry = render_clickable_entry(
+            "设备类型",
+            &app.settings_state.device_type,
+            "device-type",
+            cx,
+            |this, _window, cx| {
+                this.cycle_device_type_setting(cx);
+            },
+        );
+        let device_model_entry = render_clickable_entry(
+            "设备型号",
+            if app.settings_state.device_model.trim().is_empty() {
+                "自动"
+            } else {
+                app.settings_state.device_model.as_str()
+            },
+            "device-model",
+            cx,
+            |this, window, cx| {
+                this.open_device_model_dialog(window, cx);
+            },
+        );
         let encryption = app.settings_state.encryption;
-        let n3 = render_boolean_entry("加密", encryption, "toggle-encryption", cx, |this| {
+        let n3 = render_boolean_entry("加密", encryption, "toggle-encryption", cx, |this, cx| {
             this.settings_state.encryption = !this.settings_state.encryption;
+            this.sync_server_config_to_runtime(cx);
+            this.restart_local_server_with_current_config(cx);
             this.persist_settings();
         });
+        let discovery_timeout_entry = render_clickable_entry(
+            "发现超时(ms)",
+            &app.settings_state.discovery_timeout.to_string(),
+            "discovery-timeout",
+            cx,
+            |this, window, cx| {
+                this.open_discovery_timeout_dialog(window, cx);
+            },
+        );
+        let multicast_entry = render_clickable_entry(
+            "组播地址",
+            &app.settings_state.multicast_group,
+            "multicast-group",
+            cx,
+            |this, window, cx| {
+                this.open_multicast_group_dialog(window, cx);
+            },
+        );
         let net_label = if network_filtered {
             "已过滤"
         } else {
             "全部"
         };
-        let n4 = render_button_entry("网络", net_label, "network", cx, |_this| {
-            log::info!("Network clicked");
-        });
+        let n4 = render_clickable_entry(
+            "网络接口模式",
+            net_label,
+            "network-mode",
+            cx,
+            |this, _window, cx| {
+                this.cycle_network_filter_mode(cx);
+            },
+        );
+        let n5 = render_clickable_entry(
+            "网络接口规则",
+            "编辑",
+            "network-rules",
+            cx,
+            |this, window, cx| {
+                this.open_network_filters_dialog(window, cx);
+            },
+        );
+        network_children.push(device_type_entry);
+        network_children.push(device_model_entry);
         network_children.push(n3);
+        network_children.push(discovery_timeout_entry);
+        network_children.push(multicast_entry);
         network_children.push(n4);
+        network_children.push(n5);
     }
     let network = render_settings_section("网络", cx, network_children);
 
@@ -438,6 +623,7 @@ pub fn render_settings_content(
 
     content = content
         .child(receive)
+        .when(advanced, |this| this.child(send))
         .child(network)
         .child(other)
         .child(advanced_toggle)
