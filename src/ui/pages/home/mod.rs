@@ -73,6 +73,14 @@ pub struct HomePage {
 }
 
 impl HomePage {
+    fn is_message_like_prepared(files: &[crate::core::receive_events::IncomingFileMeta]) -> bool {
+        files.len() == 1
+            && files
+                .first()
+                .map(|f| f.file_type.starts_with("text/") && f.preview.is_some())
+                .unwrap_or(false)
+    }
+
     fn normalized_peer_token(info: &ClientInfo, ip: &str, port: u16) -> String {
         if info.token.is_empty() {
             format!("{}:{}", ip, port)
@@ -254,21 +262,16 @@ impl HomePage {
                 match &event {
                     crate::core::receive_events::IncomingTransferEvent::Prepared {
                         session_id,
-                        sender_fingerprint,
+                        sender_fingerprint: _sender_fingerprint,
                         files,
                         ..
                     } => {
-                        let is_message_only = files.len() == 1
-                            && files
-                                .first()
-                                .map(|f| f.file_type.starts_with("text/") && f.preview.is_some())
-                                .unwrap_or(false);
-                        let is_favorite = favorite_tokens.contains(sender_fingerprint);
+                        let is_message_only = Self::is_message_like_prepared(files);
+                        let is_favorite = favorite_tokens.contains(_sender_fingerprint);
                         if is_message_only {
-                            crate::core::receive_events::submit_incoming_decision(
-                                session_id.clone(),
-                                crate::core::receive_events::IncomingTransferDecision::AcceptAll,
-                            );
+                            // Align with LocalSend:
+                            // Message requests (single text file with preview) are displayed in UI
+                            // and are not quick-saved automatically.
                             should_open_receive_page = true;
                         }
                         let quick_save = !is_message_only
@@ -332,7 +335,12 @@ impl HomePage {
                         }
                     }
                     crate::core::receive_events::IncomingTransferEvent::Completed { .. } => {
-                        if auto_finish {
+                        let is_message_only = state
+                            .active
+                            .as_ref()
+                            .map(|active| active.is_message_only)
+                            .unwrap_or(false);
+                        if auto_finish && !is_message_only {
                             should_auto_finish_receive = true;
                         }
                     }
@@ -763,66 +771,58 @@ impl HomePage {
                                 let send_https = favorite.https;
                                 let edit_id_token = favorite.token.clone();
                                 let delete_id_token = favorite.token.clone();
-                                v_flex()
+                                h_flex()
                                     .w_full()
-                                    .gap(px(6.))
+                                    .items_center()
+                                    .justify_between()
+                                    .gap(px(8.))
                                     .child(
-                                        Button::new(format!(
-                                            "favorite-device-send-{}-{}",
-                                            row_ip, row_port
-                                        ))
-                                        .custom(
-                                            ButtonCustomVariant::new(_cx)
-                                                .color(_cx.theme().secondary)
-                                                .foreground(_cx.theme().foreground)
-                                                .hover(_cx.theme().secondary)
-                                                .active(_cx.theme().secondary),
-                                        )
-                                        .w_full()
-                                        .h(px(48.))
-                                        .rounded_md()
-                                        .on_click(move |_event, window, cx| {
-                                            window.close_dialog(cx);
-                                            home_for_pick.update(cx, |this, cx| {
-                                                this.send_state.target_device = None;
-                                                this.send_to_favorite_device(
-                                                    send_state::FavoriteDevice {
-                                                        token: send_token.clone(),
-                                                        alias: send_alias.clone(),
-                                                        ip: send_ip.clone(),
-                                                        port: row_port,
-                                                        https: send_https,
-                                                        custom_alias: favorite.custom_alias,
-                                                    },
-                                                    window,
-                                                    cx,
-                                                );
-                                            });
-                                        })
-                                        .child(
-                                            h_flex()
-                                                .w_full()
-                                                .justify_between()
-                                                .items_center()
-                                                .child(
-                                                    div()
-                                                        .text_sm()
-                                                        .font_medium()
-                                                        .child(row_alias.clone()),
-                                                )
-                                                .child(
-                                                    div()
-                                                        .text_xs()
-                                                        .text_color(_cx.theme().muted_foreground)
-                                                        .child(format!("{}:{}", row_ip, row_port)),
-                                                ),
-                                        ),
+                                        v_flex()
+                                            .flex_1()
+                                            .gap(px(2.))
+                                            .child(
+                                                div()
+                                                    .text_sm()
+                                                    .font_medium()
+                                                    .child(row_alias.clone()),
+                                            )
+                                            .child(
+                                                div()
+                                                    .text_xs()
+                                                    .text_color(_cx.theme().muted_foreground)
+                                                    .child(format!("{}:{}", row_ip, row_port)),
+                                            ),
                                     )
                                     .child(
                                         h_flex()
-                                            .w_full()
-                                            .justify_end()
-                                            .gap(px(8.))
+                                            .items_center()
+                                            .gap(px(6.))
+                                            .child(
+                                                Button::new(format!(
+                                                    "favorite-device-send-{}-{}",
+                                                    row_ip, row_port
+                                                ))
+                                                .ghost()
+                                                .on_click(move |_event, window, cx| {
+                                                    window.close_dialog(cx);
+                                                    home_for_pick.update(cx, |this, cx| {
+                                                        this.send_state.target_device = None;
+                                                        this.send_to_favorite_device(
+                                                            send_state::FavoriteDevice {
+                                                                token: send_token.clone(),
+                                                                alias: send_alias.clone(),
+                                                                ip: send_ip.clone(),
+                                                                port: row_port,
+                                                                https: send_https,
+                                                                custom_alias: favorite.custom_alias,
+                                                            },
+                                                            window,
+                                                            cx,
+                                                        );
+                                                    });
+                                                })
+                                                .child("发送"),
+                                            )
                                             .child(
                                                 Button::new(format!(
                                                     "favorite-device-edit-{}",
@@ -1002,7 +1002,7 @@ impl HomePage {
                             cx,
                         );
                     });
-                    true
+                    false
                 })
         });
     }
@@ -1545,19 +1545,26 @@ impl HomePage {
                                 .outline()
                                 .w_full()
                                 .on_click(move |_event, window, cx| {
-                                    let mut can_open = false;
+                                    let mut has_selected_files = false;
                                     let _ = home_link.update(cx, |this, cx| {
-                                        if !this.ensure_has_selected_files(window, cx) {
-                                            return;
+                                        has_selected_files = !this.send_state.selected_files.is_empty();
+                                        if has_selected_files {
+                                            this.apply_send_mode_default(SendMode::Link);
                                         }
-                                        this.apply_send_mode_default(SendMode::Link);
-                                        can_open = true;
                                     });
-                                    if can_open {
-                                        window.close_dialog(cx);
+                                    window.close_dialog(cx);
+                                    if has_selected_files {
                                         RouterState::global_mut(cx).location.pathname =
                                             "/send/link".into();
                                         window.refresh();
+                                    } else {
+                                        let _ = home_link.update(cx, |this, cx| {
+                                            this.open_simple_notice_dialog(
+                                                "请先选择要发送的文件或文本",
+                                                window,
+                                                cx,
+                                            );
+                                        });
                                     }
                                 })
                                 .child(

@@ -90,6 +90,7 @@ pub struct SendPageState {
     pub session_status: SendSessionStatus,
     pub session_status_text: Option<String>,
     pub has_scanned_once: bool,
+    pub suppress_next_nearby_row_click: bool,
     pub favorite_tokens: HashSet<String>,
     pub favorite_devices: HashMap<String, FavoriteDevice>,
 }
@@ -153,6 +154,7 @@ impl Default for SendPageState {
             session_status: SendSessionStatus::Idle,
             session_status_text: None,
             has_scanned_once: false,
+            suppress_next_nearby_row_click: false,
             favorite_tokens: loaded_favorites.tokens,
             favorite_devices: loaded_favorites.devices,
         }
@@ -175,16 +177,22 @@ impl SendPageState {
         https: bool,
         custom_alias: bool,
     ) {
-        if token.trim().is_empty() || ip.trim().is_empty() || port == 0 {
+        let ip = ip.trim().to_string();
+        if ip.is_empty() || port == 0 {
             return;
         }
-        self.favorite_tokens.insert(token.clone());
+        let normalized_token = if token.trim().is_empty() {
+            format!("{}:{}", ip, port)
+        } else {
+            token.trim().to_string()
+        };
+        self.favorite_tokens.insert(normalized_token.clone());
         self.favorite_devices.insert(
-            token.clone(),
+            normalized_token.clone(),
             FavoriteDevice {
-                token,
+                token: normalized_token,
                 alias: alias.trim().to_string(),
-                ip: ip.trim().to_string(),
+                ip,
                 port,
                 https,
                 custom_alias,

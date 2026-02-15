@@ -190,7 +190,7 @@ impl gpui::RenderOnce for DeviceCard {
                             .child(subtitle),
                     )
                     .child(if on_favorite_tap.is_some() || on_select.is_some() {
-                        Button::new("favorite")
+                        Button::new(format!("favorite-{}", device.token))
                             .ghost()
                             .on_click(move |_event, window, cx| {
                                 if let Some(ref handler) = on_favorite_tap {
@@ -211,7 +211,7 @@ impl gpui::RenderOnce for DeviceCard {
                             )
                             .into_any_element()
                     } else {
-                        Button::new("send")
+                        Button::new(format!("send-{}", device.token))
                             .primary()
                             .on_click(move |_event, window, cx| {
                                 if let Some(ref handler) = on_select {

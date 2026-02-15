@@ -11,7 +11,8 @@ use gpui::{div, prelude::*, px, AnyElement, Context, ScrollHandle, Window};
 use gpui_component::scroll::ScrollableElement as _;
 use gpui_component::{
     button::{Button, ButtonCustomVariant, ButtonVariants as _},
-    h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _, Size, StyledExt as _,
+    popover::Popover,
+    h_flex, v_flex, ActiveTheme as _, Anchor, Icon, Sizable as _, Size, StyledExt as _,
 };
 
 /// Button width/height for content type buttons (matches BigButton constants).
@@ -426,22 +427,150 @@ pub fn render_send_content(
                                                 "icons/heart.svg",
                                                 cx,
                                                 |this, window, cx| {
-                                                    if !this.ensure_has_selected_files(window, cx) {
-                                                        return;
-                                                    }
                                                     this.open_favorites_dialog(window, cx);
                                                 },
                                             ))
-                                            // Send mode button
-                                            .child(render_action_button(
-                                                "send-mode",
-                                                "icons/settings.svg",
-                                                cx,
-                                                |this, window, cx| {
-                                                    this.open_send_mode_dialog(window, cx)
-                                                },
-                                            )),
-                                    ),
+                                            // Send mode button (dropdown)
+                                            .child(
+                                                Popover::new("send-mode-popover")
+                                                    .anchor(Anchor::TopRight)
+                                                    .overlay_closable(true)
+                                                    .open(app.send_state.show_send_mode_menu)
+                                                    .on_open_change({
+                                                        let home_entity = home_entity.clone();
+                                                        move |open, _window, cx| {
+                                                            home_entity.update(cx, |this, _cx| {
+                                                                this.send_state.show_send_mode_menu = *open;
+                                                            });
+                                                        }
+                                                    })
+                                                    .trigger(
+                                                        Button::new("send-mode")
+                                                            .ghost()
+                                                            .rounded_full()
+                                                            .p(px(6.))
+                                                            .child(
+                                                                div()
+                                                                    .shadow_xs()
+                                                                    .rounded_full()
+                                                                    .w(px(38.))
+                                                                    .h(px(38.))
+                                                                    .flex()
+                                                                    .items_center()
+                                                                    .justify_center()
+                                                                    .child(
+                                                                        Icon::default()
+                                                                            .path("icons/settings.svg")
+                                                                            .with_size(Size::Small),
+                                                                    ),
+                                                            ),
+                                                    )
+                                                    .content({
+                                                        let home_entity = home_entity.clone();
+                                                        let current_mode = app.send_state.send_mode;
+                                                        move |_state, window, cx| {
+                                                            let home_single = home_entity.clone();
+                                                            let home_multiple = home_entity.clone();
+                                                            let home_link = home_entity.clone();
+                                                            v_flex()
+                                                                .w(px(220.))
+                                                                .gap(px(6.))
+                                                                .child(
+                                                                    Button::new("send-mode-single-inline")
+                                                                        .with_variant(gpui_component::button::ButtonVariant::Secondary)
+                                                                        .outline()
+                                                                        .w_full()
+                                                                        .on_click(move |_event, _window, cx| {
+                                                                            let _ = home_single.update(cx, |this, _| {
+                                                                                this.apply_send_mode_default(super::SendMode::Single);
+                                                                                this.send_state.show_send_mode_menu = false;
+                                                                            });
+                                                                        })
+                                                                        .child(
+                                                                            h_flex()
+                                                                                .w_full()
+                                                                                .justify_between()
+                                                                                .items_center()
+                                                                                .child(div().text_sm().child("单接收者"))
+                                                                                .child(if matches!(current_mode, super::SendMode::Single) {
+                                                                                    Icon::default().path("icons/check.svg").with_size(Size::Small)
+                                                                                } else {
+                                                                                    Icon::default()
+                                                                                        .path("icons/more-horizontal.svg")
+                                                                                        .with_size(Size::Small)
+                                                                                        .text_color(cx.theme().muted_foreground)
+                                                                                }),
+                                                                        ),
+                                                                )
+                                                                .child(
+                                                                    Button::new("send-mode-multiple-inline")
+                                                                        .with_variant(gpui_component::button::ButtonVariant::Secondary)
+                                                                        .outline()
+                                                                        .w_full()
+                                                                        .on_click(move |_event, _window, cx| {
+                                                                            let _ = home_multiple.update(cx, |this, _| {
+                                                                                this.apply_send_mode_default(super::SendMode::Multiple);
+                                                                                this.send_state.show_send_mode_menu = false;
+                                                                            });
+                                                                        })
+                                                                        .child(
+                                                                            h_flex()
+                                                                                .w_full()
+                                                                                .justify_between()
+                                                                                .items_center()
+                                                                                .child(div().text_sm().child("多个接收者"))
+                                                                                .child(if matches!(current_mode, super::SendMode::Multiple) {
+                                                                                    Icon::default().path("icons/check.svg").with_size(Size::Small)
+                                                                                } else {
+                                                                                    Icon::default()
+                                                                                        .path("icons/more-horizontal.svg")
+                                                                                        .with_size(Size::Small)
+                                                                                        .text_color(cx.theme().muted_foreground)
+                                                                                }),
+                                                                        ),
+                                                                )
+                                                                .child(
+                                                                    Button::new("send-mode-link-inline")
+                                                                        .with_variant(gpui_component::button::ButtonVariant::Secondary)
+                                                                        .outline()
+                                                                        .w_full()
+                                                                        .on_click(move |_event, window, cx| {
+                                                                            let _ = home_link.update(cx, |this, cx| {
+                                                                                this.send_state.show_send_mode_menu = false;
+                                                                                if this.send_state.selected_files.is_empty() {
+                                                                                    this.open_simple_notice_dialog(
+                                                                                        "请先选择要发送的文件或文本",
+                                                                                        window,
+                                                                                        cx,
+                                                                                    );
+                                                                                    return;
+                                                                                }
+                                                                                this.apply_send_mode_default(super::SendMode::Link);
+                                                                                gpui_router::RouterState::global_mut(cx).location.pathname =
+                                                                                    "/send/link".into();
+                                                                                window.refresh();
+                                                                            });
+                                                                        })
+                                                                        .child(
+                                                                            h_flex()
+                                                                                .w_full()
+                                                                                .justify_between()
+                                                                                .items_center()
+                                                                                .child(div().text_sm().child("通过分享链接发送"))
+                                                                                .child(if matches!(current_mode, super::SendMode::Link) {
+                                                                                    Icon::default().path("icons/check.svg").with_size(Size::Small)
+                                                                                } else {
+                                                                                    Icon::default()
+                                                                                        .path("icons/more-horizontal.svg")
+                                                                                        .with_size(Size::Small)
+                                                                                        .text_color(cx.theme().muted_foreground)
+                                                                                }),
+                                                                        ),
+                                                                )
+                                                        }
+                                                    }),
+                                            ),
+                                    )
                             ),
                     )
                     // -- Device list or placeholder --
@@ -485,6 +614,10 @@ pub fn render_send_content(
                                         .px(px(15.))
                                         .pb(px(10.))
                                         .on_click(cx.listener(move |this, _event, window, cx| {
+                                            if this.send_state.suppress_next_nearby_row_click {
+                                                this.send_state.suppress_next_nearby_row_click = false;
+                                                return;
+                                            }
                                             let device = device_for_select.clone();
                                             if !this.ensure_has_selected_files(window, cx) {
                                                 return;
@@ -524,6 +657,7 @@ pub fn render_send_content(
                                                     let endpoint_for_favorite = endpoint.cloned();
                                                     move |_device, window, cx| {
                                                         home_for_favorite.update(cx, |this, cx| {
+                                                            this.send_state.suppress_next_nearby_row_click = true;
                                                             if this.send_state.favorite_tokens.contains(&token) {
                                                                 let alias_for_delete = favorite_device
                                                                     .as_ref()

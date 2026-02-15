@@ -39,13 +39,11 @@ impl gpui::Render for ReceiveIncomingPage {
             .unwrap_or_else(|| "#--".to_string());
 
         let message_content = session.as_ref().and_then(|s| {
-            if !s.is_message_only {
-                return None;
+            if s.is_message_only {
+                s.items.first().and_then(|item| item.text_content.clone())
+            } else {
+                None
             }
-            s.items
-                .iter()
-                .find_map(|item| item.text_content.clone())
-                .or_else(|| s.items.first().map(|x| x.file_name.clone()))
         });
         let file_count = session.as_ref().map(|s| s.items.len()).unwrap_or(0);
         let subtitle = if message_content.is_some() {

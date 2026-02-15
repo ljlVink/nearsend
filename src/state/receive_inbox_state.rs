@@ -29,6 +29,14 @@ pub struct ReceiveInboxState {
 }
 
 impl ReceiveInboxState {
+    fn is_message_like(files: &[crate::core::receive_events::IncomingFileMeta]) -> bool {
+        files.len() == 1
+            && files
+                .first()
+                .map(|f| f.file_type.starts_with("text/") && f.preview.is_some())
+                .unwrap_or(false)
+    }
+
     pub fn apply_event(&mut self, event: IncomingTransferEvent) {
         match event {
             IncomingTransferEvent::Prepared {
@@ -38,11 +46,7 @@ impl ReceiveInboxState {
                 sender_fingerprint,
                 files,
             } => {
-                let is_message_only = files.len() == 1
-                    && files
-                        .first()
-                        .map(|f| f.file_type.starts_with("text/") && f.preview.is_some())
-                        .unwrap_or(false);
+                let is_message_only = Self::is_message_like(&files);
                 let items: Vec<ReceiveItem> = files
                     .into_iter()
                     .map(|f| ReceiveItem {
