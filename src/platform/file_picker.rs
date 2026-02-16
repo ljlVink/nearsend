@@ -14,12 +14,15 @@ use tokio::sync::oneshot;
 type PickFilesTsfn = ThreadsafeFunction<(), Unknown<'static>, (), Status, false>;
 type PickFoldersTsfn = ThreadsafeFunction<(), Unknown<'static>, (), Status, false>;
 type PickSaveDirTsfn = ThreadsafeFunction<(), Unknown<'static>, (), Status, false>;
+type PickSaveFileTsfn = ThreadsafeFunction<String, Unknown<'static>, String, Status, false>;
 
 static PICK_FILES_TSFN: LazyLock<RwLock<Option<Arc<PickFilesTsfn>>>> =
     LazyLock::new(|| RwLock::new(None));
 static PICK_FOLDERS_TSFN: LazyLock<RwLock<Option<Arc<PickFoldersTsfn>>>> =
     LazyLock::new(|| RwLock::new(None));
 static PICK_SAVE_DIR_TSFN: LazyLock<RwLock<Option<Arc<PickSaveDirTsfn>>>> =
+    LazyLock::new(|| RwLock::new(None));
+static PICK_SAVE_FILE_TSFN: LazyLock<RwLock<Option<Arc<PickSaveFileTsfn>>>> =
     LazyLock::new(|| RwLock::new(None));
 
 #[napi]
@@ -62,6 +65,22 @@ pub fn register_file_picker_callbacks(
     Ok(())
 }
 
+#[napi]
+pub fn register_save_file_callback(
+    save_file: Function<'static, String, Unknown<'static>>,
+) -> Result<()> {
+    let save_file_tsfn = save_file
+        .build_threadsafe_function()
+        .callee_handled::<false>()
+        .build()?;
+
+    let mut guard = PICK_SAVE_FILE_TSFN
+        .write()
+        .map_err(|_| Error::from_reason("failed to lock PICK_SAVE_FILE_TSFN"))?;
+    guard.replace(Arc::new(save_file_tsfn));
+    Ok(())
+}
+
 fn get_pick_files_tsfn() -> Result<Arc<PickFilesTsfn>> {
     PICK_FILES_TSFN
         .read()
@@ -87,6 +106,15 @@ fn get_pick_save_dir_tsfn() -> Result<Arc<PickSaveDirTsfn>> {
         .as_ref()
         .map(Arc::clone)
         .ok_or_else(|| Error::from_reason("save-directory picker callback is not registered"))
+}
+
+fn get_pick_save_file_tsfn() -> Result<Arc<PickSaveFileTsfn>> {
+    PICK_SAVE_FILE_TSFN
+        .read()
+        .map_err(|_| Error::from_reason("failed to read PICK_SAVE_FILE_TSFN"))?
+        .as_ref()
+        .map(Arc::clone)
+        .ok_or_else(|| Error::from_reason("save-file callback is not registered"))
 }
 
 async fn invoke_picker(tsfn: Arc<PickFilesTsfn>) -> Result<Vec<String>> {
@@ -187,6 +215,53 @@ pub async fn pick_save_directory() -> Result<Option<PathBuf>> {
     let uri = rx
         .await
         .map_err(|_| Error::from_reason("save-directory picker callback receiver dropped"))??;
+    Ok(picker_uri_to_path(&uri))
+}
+
+pub async fn pick_save_file(file_name: String) -> Result<Option<PathBuf>> {
+    let tsfn = get_pick_save_file_tsfn()?;
+    let (tx, rx) = oneshot::channel::<Result<String>>();
+    let status = tsfn.call_with_return_value(
+        file_name,
+        ThreadsafeFunctionCallMode::NonBlocking,
+        move |result, _| {
+            match result {
+                Ok(value) => {
+                    let tx_cell = Rc::new(Cell::new(Some(tx)));
+                    let tx_in_catch = tx_cell.clone();
+                    let promise = unsafe { value.cast::<PromiseRaw<'static, String>>() }?;
+                    promise
+                        .then(move |ctx| {
+                            if let Some(sender) = tx_cell.replace(None) {
+                                let _ = sender.send(Ok(ctx.value));
+                            }
+                            Ok(())
+                        })?
+                        .catch(
+                            move |ctx: napi_ohos::bindgen_prelude::CallbackContext<Unknown>| {
+                                if let Some(sender) = tx_in_catch.replace(None) {
+                                    let _ = sender.send(Err(ctx.value.into()));
+                                }
+                                Ok(())
+                            },
+                        )?;
+                }
+                Err(err) => {
+                    let _ = tx.send(Err(err));
+                }
+            }
+            Ok(())
+        },
+    );
+    if status != Status::Ok {
+        return Err(Error::from_reason(format!(
+            "call save-file callback failed with status: {:?}",
+            status
+        )));
+    }
+    let uri = rx
+        .await
+        .map_err(|_| Error::from_reason("save-file callback receiver dropped"))??;
     Ok(picker_uri_to_path(&uri))
 }
 

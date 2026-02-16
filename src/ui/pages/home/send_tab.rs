@@ -11,8 +11,9 @@ use gpui::{div, prelude::*, px, AnyElement, Context, ScrollHandle, Window};
 use gpui_component::scroll::ScrollableElement as _;
 use gpui_component::{
     button::{Button, ButtonCustomVariant, ButtonVariants as _},
+    h_flex,
     popover::Popover,
-    h_flex, v_flex, ActiveTheme as _, Anchor, Icon, Sizable as _, Size, StyledExt as _,
+    v_flex, ActiveTheme as _, Anchor, Icon, Sizable as _, Size, StyledExt as _,
 };
 
 /// Button width/height for content type buttons (matches BigButton constants).

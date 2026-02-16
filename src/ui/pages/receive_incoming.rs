@@ -1,4 +1,6 @@
-use crate::state::{app_state::AppState, receive_inbox_state::ReceiveInboxState};
+use crate::state::{
+    app_state::AppState, receive_inbox_state::ReceiveInboxState, transfer_state::TransferDirection,
+};
 use gpui::{div, hsla, prelude::*, px, Context, Entity, Window};
 use gpui_component::{
     button::{Button, ButtonCustomVariant, ButtonVariants as _},
@@ -46,10 +48,22 @@ impl gpui::Render for ReceiveIncomingPage {
             }
         });
         let file_count = session.as_ref().map(|s| s.items.len()).unwrap_or(0);
+        let direction = session
+            .as_ref()
+            .map(|s| s.direction)
+            .unwrap_or(TransferDirection::Receive);
         let subtitle = if message_content.is_some() {
-            "发送给你了一条消息：".to_string()
+            if direction == TransferDirection::Send {
+                format!("你发送给 {} 的消息：", sender_alias)
+            } else {
+                "发送给你了一条消息：".to_string()
+            }
         } else if file_count > 0 {
-            format!("发送给你 {} 个文件", file_count)
+            if direction == TransferDirection::Send {
+                format!("你发送给 {} {} 个文件", sender_alias, file_count)
+            } else {
+                format!("发送给你 {} 个文件", file_count)
+            }
         } else {
             "等待接收内容".to_string()
         };

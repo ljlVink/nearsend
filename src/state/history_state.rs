@@ -2,6 +2,14 @@ use crate::state::transfer_state::{TransferDirection, TransferStatus};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HistoryEntryKind {
+    #[default]
+    File,
+    Text,
+}
+
 /// A single history entry for a completed (or failed) transfer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HistoryEntry {
@@ -9,6 +17,10 @@ pub struct HistoryEntry {
     pub file_name: String,
     pub file_size: u64,
     pub file_path: PathBuf,
+    #[serde(default)]
+    pub kind: HistoryEntryKind,
+    #[serde(default)]
+    pub text_content: Option<String>,
     pub direction: TransferDirection,
     pub device_name: String,
     pub timestamp: u64, // unix timestamp in seconds

@@ -44,7 +44,11 @@ impl AppRoot {
                 receive_inbox_state.clone(),
             )
         });
-        let history_entity = cx.new(|_| HistoryPage::new().with_history_state(history_state));
+        let history_entity = cx.new(|_| {
+            HistoryPage::new()
+                .with_history_state(history_state)
+                .with_receive_inbox_state(receive_inbox_state.clone())
+        });
         let progress_entity = cx.new(|_| {
             ProgressPage::new(
                 transfer_state,

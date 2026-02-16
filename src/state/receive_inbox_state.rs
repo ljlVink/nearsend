@@ -1,4 +1,5 @@
 use crate::core::receive_events::IncomingTransferEvent;
+use crate::state::transfer_state::TransferDirection;
 
 #[derive(Clone, Debug, Default)]
 pub struct ReceiveItem {
@@ -10,17 +11,35 @@ pub struct ReceiveItem {
     pub text_content: Option<String>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct ReceiveSession {
     pub session_id: String,
     pub sender_alias: String,
     pub sender_device_model: Option<String>,
     pub sender_fingerprint: String,
+    pub direction: TransferDirection,
     pub items: Vec<ReceiveItem>,
     pub completed: bool,
     pub cancelled: bool,
     pub is_message_only: bool,
     pub selected_file_ids: Vec<String>,
+}
+
+impl Default for ReceiveSession {
+    fn default() -> Self {
+        Self {
+            session_id: String::new(),
+            sender_alias: String::new(),
+            sender_device_model: None,
+            sender_fingerprint: String::new(),
+            direction: TransferDirection::Receive,
+            items: Vec::new(),
+            completed: false,
+            cancelled: false,
+            is_message_only: false,
+            selected_file_ids: Vec::new(),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -64,6 +83,7 @@ impl ReceiveInboxState {
                     sender_alias,
                     sender_device_model,
                     sender_fingerprint,
+                    direction: TransferDirection::Receive,
                     items,
                     completed: false,
                     cancelled: false,

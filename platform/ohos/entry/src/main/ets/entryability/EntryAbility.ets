@@ -15,6 +15,12 @@ interface NearSendBridge {
     readClipboard: () => Promise<string>,
     writeClipboard: (text: string) => Promise<boolean>,
   ) => void;
+  registerSaveFileCallback?: (
+    saveFile: (fileName: string) => Promise<string>,
+  ) => void;
+  registerOpenFileCallback?: (
+    openFile: (uri: string) => Promise<boolean>,
+  ) => void;
 }
 
 export default class EntryAbility extends RustAbility {
@@ -92,6 +98,37 @@ export default class EntryAbility extends RustAbility {
     }
   }
 
+  private async pickSaveFileFromSystem(fileName: string): Promise<string> {
+    try {
+      const documentPicker = new picker.DocumentViewPicker();
+      const options = new picker.DocumentSaveOptions();
+      options.newFileNames = [fileName];
+      const result = await documentPicker.save(options);
+      if (!result || result.length === 0) {
+        return "";
+      }
+      return result[0];
+    } catch (_err) {
+      return "";
+    }
+  }
+
+  private async openSavedFileFromSystem(uri: string): Promise<boolean> {
+    if (!uri) {
+      return false;
+    }
+    try {
+      const want: Want = {
+        action: "ohos.want.action.viewData",
+        uri,
+      };
+      await this.context.startAbility(want);
+      return true;
+    } catch (_err) {
+      return false;
+    }
+  }
+
   public async onCreate(
     want: Want,
     launchParam: AbilityConstant.LaunchParam,
@@ -108,6 +145,10 @@ export default class EntryAbility extends RustAbility {
       nearSendBridge.registerClipboardCallbacks;
     const registerPickerFn =
       nearSendBridge.registerFilePickerCallbacks;
+    const registerSaveFileFn =
+      nearSendBridge.registerSaveFileCallback;
+    const registerOpenFileFn =
+      nearSendBridge.registerOpenFileCallback;
     if (typeof registerPickerFn === "function") {
       registerPickerFn(
         async () => await this.pickFilesFromSystem(),
@@ -119,6 +160,16 @@ export default class EntryAbility extends RustAbility {
       registerFn(
         async () => await this.readClipboardText(),
         async (text: string) => await this.writeClipboardText(text),
+      );
+    }
+    if (typeof registerSaveFileFn === "function") {
+      registerSaveFileFn(
+        async (fileName: string) => await this.pickSaveFileFromSystem(fileName),
+      );
+    }
+    if (typeof registerOpenFileFn === "function") {
+      registerOpenFileFn(
+        async (uri: string) => await this.openSavedFileFromSystem(uri),
       );
     }
     await super.onCreate(want, launchParam);

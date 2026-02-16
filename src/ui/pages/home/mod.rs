@@ -19,7 +19,7 @@ pub use settings_state::{
 use crate::state::{
     app_state::AppState,
     device_state::DeviceState,
-    history_state::{HistoryEntry, HistoryState},
+    history_state::{HistoryEntry, HistoryEntryKind, HistoryState},
     receive_inbox_state::ReceiveInboxState,
     send_selection_state::SendSelectionState,
     transfer_state::{TransferDirection, TransferState, TransferStatus},
@@ -318,11 +318,30 @@ impl HomePage {
                                             .map(|d| d.as_secs())
                                             .unwrap_or(0);
                                         if save_to_history {
+                                            let is_text_item = item.file_type.starts_with("text/");
+                                            let message_text = if is_text_item {
+                                                item.text_content
+                                                    .clone()
+                                                    .filter(|t| !t.trim().is_empty())
+                                                    .unwrap_or_else(|| item.file_name.clone())
+                                            } else {
+                                                item.file_name.clone()
+                                            };
                                             history_entries.push(HistoryEntry {
                                                 id: uuid::Uuid::new_v4().to_string(),
-                                                file_name: item.file_name.clone(),
+                                                file_name: message_text.clone(),
                                                 file_size: item.size,
                                                 file_path,
+                                                kind: if is_text_item {
+                                                    HistoryEntryKind::Text
+                                                } else {
+                                                    HistoryEntryKind::File
+                                                },
+                                                text_content: if is_text_item {
+                                                    Some(message_text)
+                                                } else {
+                                                    None
+                                                },
                                                 direction: TransferDirection::Receive,
                                                 device_name: active.sender_alias.clone(),
                                                 timestamp,
@@ -1547,7 +1566,8 @@ impl HomePage {
                                 .on_click(move |_event, window, cx| {
                                     let mut has_selected_files = false;
                                     let _ = home_link.update(cx, |this, cx| {
-                                        has_selected_files = !this.send_state.selected_files.is_empty();
+                                        has_selected_files =
+                                            !this.send_state.selected_files.is_empty();
                                         if has_selected_files {
                                             this.apply_send_mode_default(SendMode::Link);
                                         }
@@ -3581,11 +3601,34 @@ impl HomePage {
                                     .map(|d| d.as_secs())
                                     .unwrap_or(0);
                                 for file in &sent_files_for_history {
+                                    let is_text_item = file.text_content.is_some();
+                                    let message_text = if is_text_item {
+                                        file.text_content
+                                            .clone()
+                                            .filter(|t| !t.trim().is_empty())
+                                            .unwrap_or_else(|| file.name.clone())
+                                    } else {
+                                        file.name.clone()
+                                    };
                                     let entry = HistoryEntry {
                                         id: uuid::Uuid::new_v4().to_string(),
-                                        file_name: file.name.clone(),
+                                        file_name: message_text.clone(),
                                         file_size: file.size,
-                                        file_path: file.path.clone(),
+                                        file_path: if is_text_item {
+                                            std::path::PathBuf::new()
+                                        } else {
+                                            file.path.clone()
+                                        },
+                                        kind: if is_text_item {
+                                            HistoryEntryKind::Text
+                                        } else {
+                                            HistoryEntryKind::File
+                                        },
+                                        text_content: if is_text_item {
+                                            Some(message_text)
+                                        } else {
+                                            None
+                                        },
                                         direction: TransferDirection::Send,
                                         device_name: target_device_name.clone(),
                                         timestamp,

@@ -63,7 +63,6 @@ struct IncomingSession {
     sender_device_model: Option<String>,
     sender_fingerprint: String,
     files: HashMap<String, IncomingSessionFile>,
-    save_directory: Option<PathBuf>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -660,7 +659,6 @@ async fn handle_prepare_upload(
             sender_device_model,
             sender_fingerprint,
             files: session_files,
-            save_directory: None,
         },
     );
 
@@ -766,10 +764,10 @@ async fn handle_upload(
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("read body failed: {}", e)))?
         .to_bytes();
 
-    let (session_id, saved_path, text_content, completed_now) = {
+    let session_id = {
         let mut sessions = state.sessions.lock().await;
-        let session_id = if let Some(session_id) = session_id_query.clone() {
-            session_id
+        let sid = if let Some(sid) = session_id_query.clone() {
+            sid
         } else {
             sessions
                 .keys()
@@ -777,9 +775,8 @@ async fn handle_upload(
                 .cloned()
                 .ok_or((StatusCode::CONFLICT, "No session".to_string()))?
         };
-
         let session = sessions
-            .get_mut(&session_id)
+            .get_mut(&sid)
             .ok_or((StatusCode::FORBIDDEN, "Invalid session id".to_string()))?;
         if session.sender_ip != remote_ip {
             return Err((StatusCode::FORBIDDEN, "Invalid IP address".to_string()));
@@ -797,55 +794,75 @@ async fn handle_upload(
         if file.token.as_deref() != Some(token.as_str()) {
             return Err((StatusCode::FORBIDDEN, "Invalid token".to_string()));
         }
+        sid.clone()
+    };
 
-        let text_content = if is_text_type(&file.file_type) {
+    let file_name_for_save = {
+        let sessions = state.sessions.lock().await;
+        let session = sessions
+            .get(&session_id)
+            .ok_or((StatusCode::FORBIDDEN, "Invalid session id".to_string()))?;
+        session
+            .files
+            .get(&file_id)
+            .map(|f| f.file_name.clone())
+            .ok_or((StatusCode::FORBIDDEN, "Invalid token".to_string()))?
+    };
+
+    let text_content: Option<String> = {
+        let sessions = state.sessions.lock().await;
+        let session = sessions
+            .get(&session_id)
+            .ok_or((StatusCode::FORBIDDEN, "Invalid session id".to_string()))?;
+        let file = session
+            .files
+            .get(&file_id)
+            .ok_or((StatusCode::FORBIDDEN, "Invalid token".to_string()))?;
+        Ok(if is_text_type(&file.file_type) {
             String::from_utf8(body.to_vec()).ok()
         } else {
             None
-        };
-        let save_root = if let Some(dir) = session.save_directory.clone() {
-            dir
-        } else if let Some(dir) = state.default_save_directory.lock().await.clone() {
-            session.save_directory = Some(dir.clone());
-            dir
-        } else {
-            let chosen = crate::platform::file_picker::pick_save_directory()
-                .await
-                .map_err(|err| {
-                    (
-                        StatusCode::CONFLICT,
-                        format!("pick save directory failed: {}", err),
-                    )
-                })?;
-            let dir = chosen.ok_or((
-                StatusCode::CONFLICT,
-                "No save directory selected".to_string(),
-            ))?;
-            session.save_directory = Some(dir.clone());
-            dir
-        };
-        let save_dir = save_root.join("near-send-received").join(&session_id);
-        let _ = tokio::fs::create_dir_all(&save_dir).await;
-        let file_path = save_dir.join(sanitize_relative_file_path(&file.file_name));
-        if let Some(parent) = file_path.parent() {
-            let _ = tokio::fs::create_dir_all(parent).await;
-        }
-        if let Err(err) = tokio::fs::write(&file_path, body).await {
-            log::warn!("save incoming file failed: {}", err);
-        }
+        })
+    }?;
 
+    let file_path = match crate::platform::save_file::save_incoming_file(
+        &session_id,
+        &file_name_for_save,
+        &body,
+    )
+    .await
+    {
+        Ok(p) => p,
+        Err(err) => {
+            let msg = format!("save incoming file failed: {}", err);
+            log::warn!("{}", msg);
+            if let Some(mut session) = state.sessions.lock().await.remove(&session_id) {
+                session.status = IncomingSessionStatus::Cancelled;
+                push_incoming_event(IncomingTransferEvent::Cancelled {
+                    session_id: session_id.clone(),
+                    reason: Some(msg.clone()),
+                });
+            }
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, msg));
+        }
+    };
+
+    let (saved_path, completed_now) = {
+        let mut sessions = state.sessions.lock().await;
+        let session = sessions
+            .get_mut(&session_id)
+            .ok_or((StatusCode::FORBIDDEN, "Invalid session id".to_string()))?;
+        let file = session
+            .files
+            .get_mut(&file_id)
+            .ok_or((StatusCode::FORBIDDEN, "Invalid token".to_string()))?;
         file.received = true;
         let completed_now = session.files.values().all(|f| f.received);
         if completed_now {
             session.status = IncomingSessionStatus::Completed;
         }
-        (
-            session_id,
-            Some(file_path.to_string_lossy().to_string()),
-            text_content,
-            completed_now,
-        )
-    };
+        Ok((Some(file_path.display().to_string()), completed_now))
+    }?;
 
     push_incoming_event(IncomingTransferEvent::FileReceived {
         session_id: session_id.clone(),
@@ -1071,27 +1088,6 @@ fn query_first<'a>(query: &'a HashMap<String, String>, keys: &[&str]) -> Option<
         }
     }
     None
-}
-
-fn sanitize_relative_file_path(name: &str) -> std::path::PathBuf {
-    use std::path::{Component, PathBuf};
-
-    let trimmed = name.trim();
-    if trimmed.is_empty() {
-        return PathBuf::from(format!("{}.bin", uuid::Uuid::new_v4()));
-    }
-    let normalized = trimmed.replace('\\', "/");
-    let mut safe = PathBuf::new();
-    for component in PathBuf::from(&normalized).components() {
-        if let Component::Normal(part) = component {
-            safe.push(part);
-        }
-    }
-    if safe.as_os_str().is_empty() {
-        PathBuf::from(format!("{}.bin", uuid::Uuid::new_v4()))
-    } else {
-        safe
-    }
 }
 
 fn normalize_file_type(ft: &str) -> String {
