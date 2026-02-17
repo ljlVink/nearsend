@@ -629,6 +629,7 @@ async fn handle_prepare_upload(
                 session_id: session_id.clone(),
                 file_id: file_id.clone(),
                 saved_path: None,
+                saved_uri: None,
                 text_content: f.preview.clone(),
             });
         }
@@ -825,7 +826,7 @@ async fn handle_upload(
         })
     }?;
 
-    let file_path = match crate::platform::save_file::save_incoming_file(
+    let saved_location = match crate::platform::save_file::save_incoming_file(
         &session_id,
         &file_name_for_save,
         &body,
@@ -847,7 +848,7 @@ async fn handle_upload(
         }
     };
 
-    let (saved_path, completed_now) = {
+    let (saved_path, saved_uri, completed_now) = {
         let mut sessions = state.sessions.lock().await;
         let session = sessions
             .get_mut(&session_id)
@@ -861,13 +862,18 @@ async fn handle_upload(
         if completed_now {
             session.status = IncomingSessionStatus::Completed;
         }
-        Ok((Some(file_path.display().to_string()), completed_now))
+        Ok((
+            Some(saved_location.native_path.display().to_string()),
+            saved_location.original_uri.clone(),
+            completed_now,
+        ))
     }?;
 
     push_incoming_event(IncomingTransferEvent::FileReceived {
         session_id: session_id.clone(),
         file_id,
         saved_path,
+        saved_uri,
         text_content,
     });
     if completed_now {

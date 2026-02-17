@@ -167,7 +167,7 @@ enum ClipboardPickOutcome {
 }
 
 enum PathPickOutcome {
-    Success(Vec<std::path::PathBuf>),
+    Success(Vec<(String, std::path::PathBuf)>),
     Cancelled,
     Failed,
 }
@@ -301,6 +301,7 @@ impl HomePage {
                             session_id,
                             file_id,
                             saved_path,
+                            saved_uri,
                             ..
                         } = &event
                         {
@@ -332,6 +333,7 @@ impl HomePage {
                                                 file_name: message_text.clone(),
                                                 file_size: item.size,
                                                 file_path,
+                                                file_uri: saved_uri.clone(),
                                                 kind: if is_text_item {
                                                     HistoryEntryKind::Text
                                                 } else {
@@ -398,6 +400,7 @@ impl HomePage {
             .into_iter()
             .map(|item| send_state::SelectedFileInfo {
                 path: item.path,
+                source_uri: item.source_uri,
                 name: item.name,
                 size: item.size,
                 file_type: item.file_type,
@@ -1214,16 +1217,16 @@ impl HomePage {
                     if uris.is_empty() {
                         PathPickOutcome::Cancelled
                     } else {
-                        let paths = uris
+                        let picked = uris
                             .into_iter()
                             .filter_map(|uri| {
-                                crate::platform::file_picker::picker_uri_to_path(&uri)
+                                crate::platform::file_picker::picker_uri_to_path_with_uri(&uri)
                             })
                             .collect::<Vec<_>>();
-                        if paths.is_empty() {
+                        if picked.is_empty() {
                             PathPickOutcome::Failed
                         } else {
-                            PathPickOutcome::Success(paths)
+                            PathPickOutcome::Success(picked)
                         }
                     }
                 }
@@ -1243,10 +1246,10 @@ impl HomePage {
                 }
             };
             match outcome {
-                PathPickOutcome::Success(paths) => {
+                PathPickOutcome::Success(picked) => {
                     let mut added = 0usize;
                     let _ = send_selection_state.update(cx, |state, _| {
-                        added = state.add_paths_recursive(paths.clone());
+                        added = state.add_picker_paths_recursive(picked.clone());
                     });
                     if added > 0 {
                         return;
@@ -3619,6 +3622,7 @@ impl HomePage {
                                         } else {
                                             file.path.clone()
                                         },
+                                        file_uri: file.source_uri.clone(),
                                         kind: if is_text_item {
                                             HistoryEntryKind::Text
                                         } else {

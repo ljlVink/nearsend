@@ -11,6 +11,11 @@ use napi_ohos::{
 };
 use tokio::sync::oneshot;
 
+#[cfg(target_env = "ohos")]
+const FILE_SHARE_READ_MODE: u32 = 1 << 0;
+#[cfg(target_env = "ohos")]
+const FILE_SHARE_WRITE_MODE: u32 = 1 << 1;
+
 type PickFilesTsfn = ThreadsafeFunction<(), Unknown<'static>, (), Status, false>;
 type PickFoldersTsfn = ThreadsafeFunction<(), Unknown<'static>, (), Status, false>;
 type PickSaveDirTsfn = ThreadsafeFunction<(), Unknown<'static>, (), Status, false>;
@@ -164,11 +169,17 @@ async fn invoke_picker(tsfn: Arc<PickFilesTsfn>) -> Result<Vec<String>> {
 }
 
 pub async fn pick_files() -> Result<Vec<String>> {
-    invoke_picker(get_pick_files_tsfn()?).await
+    let uris = invoke_picker(get_pick_files_tsfn()?).await?;
+    #[cfg(target_env = "ohos")]
+    persist_uris_or_err(&uris, FILE_SHARE_READ_MODE)?;
+    Ok(uris)
 }
 
 pub async fn pick_folders() -> Result<Vec<String>> {
-    invoke_picker(get_pick_folders_tsfn()?).await
+    let uris = invoke_picker(get_pick_folders_tsfn()?).await?;
+    #[cfg(target_env = "ohos")]
+    persist_uris_or_err(&uris, FILE_SHARE_READ_MODE)?;
+    Ok(uris)
 }
 
 pub async fn pick_save_directory() -> Result<Option<PathBuf>> {
@@ -215,10 +226,15 @@ pub async fn pick_save_directory() -> Result<Option<PathBuf>> {
     let uri = rx
         .await
         .map_err(|_| Error::from_reason("save-directory picker callback receiver dropped"))??;
+    #[cfg(target_env = "ohos")]
+    persist_uris_or_err(
+        std::slice::from_ref(&uri),
+        FILE_SHARE_READ_MODE | FILE_SHARE_WRITE_MODE,
+    )?;
     Ok(picker_uri_to_path(&uri))
 }
 
-pub async fn pick_save_file(file_name: String) -> Result<Option<PathBuf>> {
+pub async fn pick_save_file(file_name: String) -> Result<Option<(String, PathBuf)>> {
     let tsfn = get_pick_save_file_tsfn()?;
     let (tx, rx) = oneshot::channel::<Result<String>>();
     let status = tsfn.call_with_return_value(
@@ -262,7 +278,39 @@ pub async fn pick_save_file(file_name: String) -> Result<Option<PathBuf>> {
     let uri = rx
         .await
         .map_err(|_| Error::from_reason("save-file callback receiver dropped"))??;
-    Ok(picker_uri_to_path(&uri))
+    #[cfg(target_env = "ohos")]
+    persist_uris_or_err(
+        std::slice::from_ref(&uri),
+        FILE_SHARE_READ_MODE | FILE_SHARE_WRITE_MODE,
+    )?;
+    Ok(picker_uri_to_path_with_uri(&uri))
+}
+
+#[cfg(target_env = "ohos")]
+fn persist_uris_or_err(uris: &[String], operation_mode: u32) -> Result<()> {
+    let policies = uris
+        .iter()
+        .map(|uri| uri.trim())
+        .filter(|uri| !uri.is_empty())
+        .map(|uri| ohos_fileshare_binding::PolicyInfo {
+            uri: uri.to_string(),
+            operation_mode,
+        })
+        .collect::<Vec<_>>();
+    if policies.is_empty() {
+        return Ok(());
+    }
+    let failed = ohos_fileshare_binding::persist_permission(&policies).map_err(|err| {
+        Error::from_reason(format!("persist picker uri permission failed: {}", err))
+    })?;
+    if failed.is_empty() {
+        Ok(())
+    } else {
+        Err(Error::from_reason(format!(
+            "persist picker uri permission partially failed: {:?}",
+            failed
+        )))
+    }
 }
 
 /// Convert picker output (URI or path) to PathBuf.
@@ -273,6 +321,50 @@ pub fn picker_uri_to_path(uri: &str) -> Option<PathBuf> {
         return None;
     }
     uri_to_native_path(trimmed)
+}
+
+/// Convert picker output to `(canonical_uri, native_path)`.
+/// On OpenHarmony this canonicalizes to a standard file URI (bundleName + path when available).
+pub fn picker_uri_to_path_with_uri(uri: &str) -> Option<(String, PathBuf)> {
+    let trimmed = uri.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let native_path = uri_to_native_path(trimmed)?;
+    let canonical_uri = canonicalize_uri(trimmed, &native_path);
+    Some((canonical_uri, native_path))
+}
+
+#[cfg(target_env = "ohos")]
+fn canonicalize_uri(original: &str, native_path: &PathBuf) -> String {
+    if original.starts_with("file://") && !original.trim_start_matches("file://").starts_with('/') {
+        return original.to_string();
+    }
+
+    if let Some(path) = native_path.to_str() {
+        if let Ok(uri) = ohos_fileuri_binding::get_uri_from_path(path) {
+            return uri;
+        }
+    }
+
+    if original.starts_with("file://") {
+        original.to_string()
+    } else if let Some(path) = native_path.to_str() {
+        format!("file://{}", path)
+    } else {
+        original.to_string()
+    }
+}
+
+#[cfg(not(target_env = "ohos"))]
+fn canonicalize_uri(original: &str, native_path: &PathBuf) -> String {
+    if original.starts_with("file://") {
+        original.to_string()
+    } else if let Some(path) = native_path.to_str() {
+        format!("file://{}", path)
+    } else {
+        original.to_string()
+    }
 }
 
 #[cfg(target_env = "ohos")]

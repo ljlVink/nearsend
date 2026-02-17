@@ -4,6 +4,7 @@ use std::path::PathBuf;
 #[derive(Clone, Debug)]
 pub struct SendSelectionItem {
     pub path: PathBuf,
+    pub source_uri: Option<String>,
     pub name: String,
     pub size: u64,
     pub file_type: String,
@@ -16,6 +17,7 @@ impl SendSelectionItem {
         let name = text.clone();
         Self {
             path: PathBuf::from(name.clone()),
+            source_uri: None,
             name,
             size,
             file_type: "text/plain".to_string(),
@@ -64,11 +66,24 @@ impl SendSelectionState {
         added
     }
 
+    pub fn add_picker_paths_recursive(&mut self, picked: Vec<(String, PathBuf)>) -> usize {
+        let mut added = 0usize;
+        for (uri, path) in picked {
+            if path.is_dir() {
+                added += self.add_directory_recursive(path);
+            } else {
+                added += self.add_single_file_with_uri(path, Some(uri));
+            }
+        }
+        added
+    }
+
     pub fn update_text(&mut self, index: usize, text: String) {
         if let Some(item) = self.items.get_mut(index) {
             let size = text.len() as u64;
             item.name = text.clone();
             item.path = PathBuf::from(text.clone());
+            item.source_uri = None;
             item.file_type = "text/plain".to_string();
             item.size = size;
             item.text_content = Some(text);
@@ -103,21 +118,30 @@ impl SendSelectionState {
                 };
                 let relative_name = relative.to_string_lossy().replace('\\', "/");
                 let display_name = format!("{}/{}", root_name, relative_name);
-                added += self.add_file_with_name(path, display_name);
+                added += self.add_file_with_name(path, None, display_name);
             }
         }
         added
     }
 
     fn add_single_file(&mut self, path: PathBuf) -> usize {
+        self.add_single_file_with_uri(path, None)
+    }
+
+    fn add_single_file_with_uri(&mut self, path: PathBuf, source_uri: Option<String>) -> usize {
         let name = path
             .file_name()
             .map(|v| v.to_string_lossy().to_string())
             .unwrap_or_else(|| path.display().to_string());
-        self.add_file_with_name(path, name)
+        self.add_file_with_name(path, source_uri, name)
     }
 
-    fn add_file_with_name(&mut self, path: PathBuf, display_name: String) -> usize {
+    fn add_file_with_name(
+        &mut self,
+        path: PathBuf,
+        source_uri: Option<String>,
+        display_name: String,
+    ) -> usize {
         if !path.is_file() || self.items.iter().any(|item| item.path == path) {
             return 0;
         }
@@ -127,6 +151,7 @@ impl SendSelectionState {
         };
         self.items.push(SendSelectionItem {
             path,
+            source_uri,
             name: display_name.clone(),
             size: metadata.len(),
             file_type: infer_file_type(&display_name),

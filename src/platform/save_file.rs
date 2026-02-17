@@ -1,11 +1,17 @@
 use bytes::Bytes;
 use std::path::{Component, PathBuf};
 
+#[derive(Debug, Clone)]
+pub struct SavedFileLocation {
+    pub native_path: PathBuf,
+    pub original_uri: Option<String>,
+}
+
 pub async fn save_incoming_file(
     session_id: &str,
     wire_file_name: &str,
     bytes: &Bytes,
-) -> std::io::Result<PathBuf> {
+) -> std::io::Result<SavedFileLocation> {
     save_incoming_file_impl(session_id, wire_file_name, bytes).await
 }
 
@@ -14,9 +20,9 @@ async fn save_incoming_file_impl(
     _session_id: &str,
     wire_file_name: &str,
     bytes: &Bytes,
-) -> std::io::Result<PathBuf> {
+) -> std::io::Result<SavedFileLocation> {
     let suggested_name = suggested_file_name(wire_file_name);
-    let save_path = crate::platform::file_picker::pick_save_file(suggested_name)
+    let (save_uri, save_path) = crate::platform::file_picker::pick_save_file(suggested_name)
         .await
         .map_err(|err| std::io::Error::other(format!("pick save file failed: {}", err)))?
         .ok_or_else(|| std::io::Error::other("save file canceled"))?;
@@ -24,7 +30,10 @@ async fn save_incoming_file_impl(
         tokio::fs::create_dir_all(parent).await?;
     }
     tokio::fs::write(&save_path, bytes).await?;
-    Ok(save_path)
+    Ok(SavedFileLocation {
+        native_path: save_path,
+        original_uri: Some(save_uri),
+    })
 }
 
 #[cfg(not(target_env = "ohos"))]
@@ -32,7 +41,7 @@ async fn save_incoming_file_impl(
     session_id: &str,
     wire_file_name: &str,
     bytes: &Bytes,
-) -> std::io::Result<PathBuf> {
+) -> std::io::Result<SavedFileLocation> {
     let base = crate::platform::preferences_path::get_preferences_path()
         .join("near-send-received")
         .join(session_id);
@@ -42,7 +51,10 @@ async fn save_incoming_file_impl(
         tokio::fs::create_dir_all(parent).await?;
     }
     tokio::fs::write(&file_path, bytes).await?;
-    Ok(file_path)
+    Ok(SavedFileLocation {
+        native_path: file_path,
+        original_uri: None,
+    })
 }
 
 fn sanitize_relative_file_path(name: &str) -> PathBuf {

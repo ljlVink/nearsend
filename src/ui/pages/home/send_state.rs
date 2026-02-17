@@ -41,6 +41,7 @@ pub enum SendSessionStatus {
 #[derive(Clone, Debug)]
 pub struct SelectedFileInfo {
     pub path: PathBuf,
+    pub source_uri: Option<String>,
     pub name: String,
     pub size: u64,
     pub file_type: String, // e.g. "image/png", "application/pdf", or extension

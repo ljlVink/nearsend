@@ -20,7 +20,7 @@ enum ClipboardPickOutcome {
 }
 
 enum PathPickOutcome {
-    Success(Vec<std::path::PathBuf>),
+    Success(Vec<(String, std::path::PathBuf)>),
     Cancelled,
     Failed,
 }
@@ -335,16 +335,16 @@ impl SelectedFilesPage {
                     if uris.is_empty() {
                         PathPickOutcome::Cancelled
                     } else {
-                        let paths = uris
+                        let picked = uris
                             .into_iter()
                             .filter_map(|uri| {
-                                crate::platform::file_picker::picker_uri_to_path(&uri)
+                                crate::platform::file_picker::picker_uri_to_path_with_uri(&uri)
                             })
                             .collect::<Vec<_>>();
-                        if paths.is_empty() {
+                        if picked.is_empty() {
                             PathPickOutcome::Failed
                         } else {
-                            PathPickOutcome::Success(paths)
+                            PathPickOutcome::Success(picked)
                         }
                     }
                 }
@@ -365,10 +365,10 @@ impl SelectedFilesPage {
             };
 
             match outcome {
-                PathPickOutcome::Success(paths) => {
+                PathPickOutcome::Success(picked) => {
                     let mut added = 0usize;
                     let _ = send_selection_state.update(cx, |state, _| {
-                        added = state.add_paths_recursive(paths.clone());
+                        added = state.add_picker_paths_recursive(picked.clone());
                     });
                     if added > 0 {
                         return;

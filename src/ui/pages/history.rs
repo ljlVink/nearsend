@@ -465,7 +465,14 @@ fn is_openable_entry(entry: &HistoryEntry) -> bool {
             .as_ref()
             .map(|t| !t.trim().is_empty())
             .unwrap_or_else(|| !entry.file_name.trim().is_empty()),
-        HistoryEntryKind::File => entry.file_path.exists(),
+        HistoryEntryKind::File => {
+            entry
+                .file_uri
+                .as_ref()
+                .map(|u| !u.trim().is_empty())
+                .unwrap_or(false)
+                || entry.file_path.exists()
+        }
     }
 }
 
@@ -505,6 +512,7 @@ fn open_history_entry(
             file_type: "text/plain".to_string(),
             size: entry.file_size,
             saved_path: None,
+            saved_uri: None,
             text_content: Some(content),
         };
         inbox.update(cx, move |state, _| {
@@ -526,11 +534,15 @@ fn open_history_entry(
         return;
     }
 
-    if !entry.file_path.exists() {
+    let open_result = if let Some(uri) = entry.file_uri.as_ref().filter(|u| !u.trim().is_empty()) {
+        crate::platform::file_opener::open_saved_uri(uri)
+    } else if entry.file_path.exists() {
+        crate::platform::file_opener::open_saved_file(&entry.file_path)
+    } else {
         open_notice_dialog("文件不存在或已被移动。", window, cx);
         return;
-    }
-    if let Err(err) = crate::platform::file_opener::open_saved_file(&entry.file_path) {
+    };
+    if let Err(err) = open_result {
         log::warn!("failed to open file from history: {}", err);
         open_notice_dialog("系统打开文件失败。", window, cx);
     }
@@ -577,6 +589,7 @@ fn open_entry_info_dialog(
 ) {
     let title = entry.file_name.clone();
     let file_path = entry.file_path.display().to_string();
+    let file_uri = entry.file_uri.clone().unwrap_or_default();
     let file_size = format_file_size(entry.file_size);
     let timestamp = format_timestamp(entry.timestamp);
     let sender = entry.device_name.clone();
@@ -594,6 +607,9 @@ fn open_entry_info_dialog(
                     .child(div().text_sm().child(format!("大小: {}", file_size)))
                     .child(div().text_sm().child(format!("来源: {}", sender)))
                     .child(div().text_sm().child(format!("时间: {}", timestamp)))
+                    .when(!file_uri.is_empty(), |this| {
+                        this.child(div().text_sm().child(format!("URI: {}", file_uri)))
+                    })
                     .child(div().text_sm().child(format!("路径: {}", file_path))),
             )
             .alert()

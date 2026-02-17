@@ -1,4 +1,4 @@
-import { AbilityConstant, Want } from "@kit.AbilityKit";
+import { AbilityConstant, Want, wantConstant } from "@kit.AbilityKit";
 import { picker } from "@kit.CoreFileKit";
 import pasteboard from "@ohos.pasteboard";
 import { RustAbility } from "@ohos-rs/ability";
@@ -15,12 +15,8 @@ interface NearSendBridge {
     readClipboard: () => Promise<string>,
     writeClipboard: (text: string) => Promise<boolean>,
   ) => void;
-  registerSaveFileCallback?: (
-    saveFile: (fileName: string) => Promise<string>,
-  ) => void;
-  registerOpenFileCallback?: (
-    openFile: (uri: string) => Promise<boolean>,
-  ) => void;
+  registerSaveFileCallback?: (saveFile: (fileName: string) => Promise<string>) => void;
+  registerOpenFileCallback?: (openFile: (uri: string) => Promise<boolean>) => void;
 }
 
 export default class EntryAbility extends RustAbility {
@@ -120,7 +116,10 @@ export default class EntryAbility extends RustAbility {
     try {
       const want: Want = {
         action: "ohos.want.action.viewData",
-        uri,
+        uri: `${uri}/`,
+        flags:
+          wantConstant.Flags.FLAG_AUTH_READ_URI_PERMISSION |
+          wantConstant.Flags.FLAG_AUTH_WRITE_URI_PERMISSION,
       };
       await this.context.startAbility(want);
       return true;
@@ -129,26 +128,22 @@ export default class EntryAbility extends RustAbility {
     }
   }
 
-  public async onCreate(
-    want: Want,
-    launchParam: AbilityConstant.LaunchParam,
-  ): Promise<void> {
+  public async onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): Promise<void> {
     const nearSendBridge = nearSend as NearSendBridge;
-    const setPreferencesPathFn =
-      nearSendBridge.setPreferencesPath;
+    const setPreferencesPathFn = nearSendBridge.setPreferencesPath;
     const preferencesDir = this.context?.preferencesDir;
-    if (typeof setPreferencesPathFn === "function" && typeof preferencesDir === "string" && preferencesDir.length > 0) {
+    if (
+      typeof setPreferencesPathFn === "function" &&
+      typeof preferencesDir === "string" &&
+      preferencesDir.length > 0
+    ) {
       setPreferencesPathFn(preferencesDir);
     }
 
-    const registerFn =
-      nearSendBridge.registerClipboardCallbacks;
-    const registerPickerFn =
-      nearSendBridge.registerFilePickerCallbacks;
-    const registerSaveFileFn =
-      nearSendBridge.registerSaveFileCallback;
-    const registerOpenFileFn =
-      nearSendBridge.registerOpenFileCallback;
+    const registerFn = nearSendBridge.registerClipboardCallbacks;
+    const registerPickerFn = nearSendBridge.registerFilePickerCallbacks;
+    const registerSaveFileFn = nearSendBridge.registerSaveFileCallback;
+    const registerOpenFileFn = nearSendBridge.registerOpenFileCallback;
     if (typeof registerPickerFn === "function") {
       registerPickerFn(
         async () => await this.pickFilesFromSystem(),
@@ -163,14 +158,10 @@ export default class EntryAbility extends RustAbility {
       );
     }
     if (typeof registerSaveFileFn === "function") {
-      registerSaveFileFn(
-        async (fileName: string) => await this.pickSaveFileFromSystem(fileName),
-      );
+      registerSaveFileFn(async (fileName: string) => await this.pickSaveFileFromSystem(fileName));
     }
     if (typeof registerOpenFileFn === "function") {
-      registerOpenFileFn(
-        async (uri: string) => await this.openSavedFileFromSystem(uri),
-      );
+      registerOpenFileFn(async (uri: string) => await this.openSavedFileFromSystem(uri));
     }
     await super.onCreate(want, launchParam);
   }

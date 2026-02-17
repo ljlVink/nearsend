@@ -8,6 +8,7 @@ pub struct ReceiveItem {
     pub file_type: String,
     pub size: u64,
     pub saved_path: Option<String>,
+    pub saved_uri: Option<String>,
     pub text_content: Option<String>,
 }
 
@@ -74,6 +75,7 @@ impl ReceiveInboxState {
                         file_type: f.file_type,
                         size: f.size,
                         saved_path: None,
+                        saved_uri: None,
                         text_content: f.preview,
                     })
                     .collect();
@@ -94,6 +96,7 @@ impl ReceiveInboxState {
                 session_id,
                 file_id,
                 saved_path,
+                saved_uri,
                 text_content,
             } => {
                 if let Some(active) = self.active.as_mut() {
@@ -102,6 +105,7 @@ impl ReceiveInboxState {
                     }
                     if let Some(item) = active.items.iter_mut().find(|x| x.file_id == file_id) {
                         item.saved_path = saved_path;
+                        item.saved_uri = saved_uri;
                         if text_content.is_some() {
                             item.text_content = text_content;
                         }

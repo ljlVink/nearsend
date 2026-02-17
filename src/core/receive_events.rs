@@ -24,6 +24,7 @@ pub enum IncomingTransferEvent {
         session_id: String,
         file_id: String,
         saved_path: Option<String>,
+        saved_uri: Option<String>,
         text_content: Option<String>,
     },
     Completed {

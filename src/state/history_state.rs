@@ -18,6 +18,8 @@ pub struct HistoryEntry {
     pub file_size: u64,
     pub file_path: PathBuf,
     #[serde(default)]
+    pub file_uri: Option<String>,
+    #[serde(default)]
     pub kind: HistoryEntryKind,
     #[serde(default)]
     pub text_content: Option<String>,

@@ -3963,6 +3963,7 @@ dependencies = [
  "napi-derive-ohos",
  "napi-ohos",
  "ohos-ability-access-control-binding",
+ "ohos-fileshare-binding",
  "ohos-fileuri-binding",
  "ohos-hilog-binding",
  "openharmony-ability",
@@ -4404,6 +4405,22 @@ name = "ohos-display-sys"
 version = "0.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fe9e1bba4d94159d0a65f1b4e748c148d4bce7930912c424522693f1837dad77"
+
+[[package]]
+name = "ohos-fileshare-binding"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0371259707995a4a2a3bbbf8efbac6daeb9c65768e5fdedb0b5c0daa8e34d11f"
+dependencies = [
+ "libc",
+ "ohos-fileshare-sys",
+]
+
+[[package]]
+name = "ohos-fileshare-sys"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eb2afeb5e277acd9ae4523071662135ef7e019a4ce8434033376f81a71ff59fa"
 
 [[package]]
 name = "ohos-fileuri-binding"

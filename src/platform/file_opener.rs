@@ -49,18 +49,54 @@ fn get_open_file_tsfn() -> Result<Arc<OpenFileTsfn>> {
 #[cfg(target_env = "ohos")]
 fn normalize_to_file_uri(path: &Path) -> String {
     let raw = path.to_string_lossy();
-    if raw.starts_with("file://") {
-        raw.to_string()
-    } else {
-        format!("file://{}", raw)
+    match ohos_fileuri_binding::get_uri_from_path(raw.as_ref()) {
+        Ok(uri) => uri,
+        Err(_) => {
+            if raw.starts_with("file://") {
+                raw.to_string()
+            } else {
+                format!("file://{}", raw)
+            }
+        }
     }
 }
 
 #[cfg(target_env = "ohos")]
-pub fn open_saved_file(path: &Path) -> anyhow::Result<()> {
+fn canonicalize_ohos_uri(input: &str) -> String {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    // `file:///path` (missing bundleName) -> build canonical URI via fileuri API.
+    if let Some(rest) = trimmed.strip_prefix("file://") {
+        if rest.starts_with('/') {
+            if let Ok(uri) = ohos_fileuri_binding::get_uri_from_path(rest) {
+                return uri;
+            }
+        }
+        return trimmed.to_string();
+    }
+
+    // Native path input -> build canonical URI via fileuri API.
+    if trimmed.starts_with('/') {
+        if let Ok(uri) = ohos_fileuri_binding::get_uri_from_path(trimmed) {
+            return uri;
+        }
+    }
+
+    trimmed.to_string()
+}
+
+#[cfg(target_env = "ohos")]
+pub fn open_saved_uri(uri: &str) -> anyhow::Result<()> {
     let tsfn = get_open_file_tsfn().map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    let target_uri = canonicalize_ohos_uri(uri);
+    if target_uri.is_empty() {
+        return Err(anyhow::anyhow!("empty uri"));
+    }
     let status = tsfn.call_with_return_value(
-        normalize_to_file_uri(path),
+        target_uri,
         ThreadsafeFunctionCallMode::NonBlocking,
         move |result, _| {
             match result {
@@ -89,6 +125,19 @@ pub fn open_saved_file(path: &Path) -> anyhow::Result<()> {
         ));
     }
     Ok(())
+}
+
+#[cfg(not(target_env = "ohos"))]
+pub fn open_saved_uri(uri: &str) -> anyhow::Result<()> {
+    if let Some(path) = uri.strip_prefix("file://") {
+        return open_saved_file(Path::new(path));
+    }
+    open_saved_file(Path::new(uri))
+}
+
+#[cfg(target_env = "ohos")]
+pub fn open_saved_file(path: &Path) -> anyhow::Result<()> {
+    open_saved_uri(&normalize_to_file_uri(path))
 }
 
 #[cfg(not(target_env = "ohos"))]
