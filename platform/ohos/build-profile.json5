@@ -1,52 +1,52 @@
 {
-  app: {
-    signingConfigs: [
+  "app": {
+    "signingConfigs": [
       {
-        name: "default",
-        type: "HarmonyOS",
-        material: {
-          certpath: "/Users/ranger/.ohos/config/default_ohos_v3uu9juekAoDOEqwMtu9rdEz0iYXpwxHCQEO8LsMI9o=.cer",
-          keyAlias: "debugKey",
-          keyPassword: "0000001BAEC1336FDFD28FBF5AC2640923BC7F24914D779813CA95FD0B4FB93C20850DA7CE3F5460B7D938",
-          profile: "/Users/ranger/.ohos/config/default_ohos_v3uu9juekAoDOEqwMtu9rdEz0iYXpwxHCQEO8LsMI9o=.p7b",
-          signAlg: "SHA256withECDSA",
-          storeFile: "/Users/ranger/.ohos/config/default_ohos_v3uu9juekAoDOEqwMtu9rdEz0iYXpwxHCQEO8LsMI9o=.p12",
-          storePassword: "0000001BE38E7DE372FC72D8BC20DF82DF83A83E379317B5D50217E6DF6BD6A2F5743785CEEA89A948C9F0"
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "/Users/ranger/.ohos/config/default_ohos_v3uu9juekAoDOEqwMtu9rdEz0iYXpwxHCQEO8LsMI9o=.cer",
+          "keyAlias": "debugKey",
+          "keyPassword": "0000001BAEC1336FDFD28FBF5AC2640923BC7F24914D779813CA95FD0B4FB93C20850DA7CE3F5460B7D938",
+          "profile": "/Users/ranger/.ohos/config/default_ohos_v3uu9juekAoDOEqwMtu9rdEz0iYXpwxHCQEO8LsMI9o=.p7b",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "/Users/ranger/.ohos/config/default_ohos_v3uu9juekAoDOEqwMtu9rdEz0iYXpwxHCQEO8LsMI9o=.p12",
+          "storePassword": "0000001BE38E7DE372FC72D8BC20DF82DF83A83E379317B5D50217E6DF6BD6A2F5743785CEEA89A948C9F0"
         }
       }
     ],
-    products: [
+    "products": [
       {
-        name: "default",
-        signingConfig: "default",
-        targetSdkVersion: "6.0.0(20)",
-        compatibleSdkVersion: "5.0.0(12)",
-        runtimeOS: "HarmonyOS",
-        buildOption: {
-          strictMode: {
-            caseSensitiveCheck: true,
-            useNormalizedOHMUrl: true
+        "name": "default",
+        "signingConfig": "default",
+        "targetSdkVersion": "6.0.0(20)",
+        "compatibleSdkVersion": "5.0.0(12)",
+        "runtimeOS": "HarmonyOS",
+        "buildOption": {
+          "strictMode": {
+            "caseSensitiveCheck": true,
+            "useNormalizedOHMUrl": true
           }
         }
       }
     ],
-    buildModeSet: [
+    "buildModeSet": [
       {
-        name: "debug"
+        "name": "debug"
       },
       {
-        name: "release"
+        "name": "release"
       }
     ]
   },
-  modules: [
+  "modules": [
     {
-      name: "entry",
-      srcPath: "./entry",
-      targets: [
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
         {
-          name: "default",
-          applyToProducts: [
+          "name": "default",
+          "applyToProducts": [
             "default"
           ]
         }
