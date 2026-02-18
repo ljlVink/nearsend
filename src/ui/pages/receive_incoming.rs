@@ -4,10 +4,13 @@ use crate::state::{
 use gpui::{div, hsla, prelude::*, px, Context, Entity, Window};
 use gpui_component::{
     button::{Button, ButtonCustomVariant, ButtonVariants as _},
-    h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _, Size,
+    h_flex,
+    notification::Notification,
+    v_flex, ActiveTheme as _, Icon, Sizable as _, Size, WindowExt as _,
 };
 use gpui_router::RouterState;
 use std::collections::HashSet;
+use std::time::Duration;
 
 pub struct ReceiveIncomingPage {
     app_state: Entity<AppState>,
@@ -20,6 +23,44 @@ impl ReceiveIncomingPage {
             app_state,
             inbox_state,
         }
+    }
+
+    fn show_copy_success_toast(&self, window: &mut Window, cx: &mut Context<Self>) {
+        struct CopySuccessToast;
+        window.push_notification(
+            Notification::new()
+                .id::<CopySuccessToast>()
+                .autohide(false)
+                .content(|_, _, _| {
+                    div()
+                        .w_full()
+                        .text_xs()
+                        .text_center()
+                        .child("复制成功")
+                        .into_any_element()
+                })
+                .w(px(92.))
+                .py(px(4.))
+                .px(px(10.))
+                .rounded_full()
+                .shadow_none()
+                .border_color(hsla(0.0, 0.0, 0.0, 0.0))
+                .bg(hsla(0.0, 0.0, 0.12, 0.92))
+                .text_color(hsla(0.0, 0.0, 1.0, 0.96)),
+            cx,
+        );
+        let window_handle = window.window_handle();
+        let tokio_handle = self.app_state.read(cx).tokio_handle.clone();
+        let dismiss = tokio_handle.spawn(async move {
+            tokio::time::sleep(Duration::from_millis(1500)).await;
+        });
+        cx.spawn(async move |_this, cx| {
+            let _ = dismiss.await;
+            let _ = window_handle.update(cx, |_, window, cx| {
+                window.remove_notification::<CopySuccessToast>(cx);
+            });
+        })
+        .detach();
     }
 }
 
@@ -276,24 +317,31 @@ impl gpui::Render for ReceiveIncomingPage {
                                         .mt(px(8.))
                                         .child("复制")
                                         .on_click(cx.listener(
-                                            move |this, _event, _window, cx| {
+                                            move |this, _event, window, cx| {
                                                 if !content.is_empty() {
+                                                    let page = cx.entity();
                                                     let tokio_handle =
                                                         this.app_state.read(cx).tokio_handle.clone();
                                                     let content_to_write = content.clone();
-                                                    tokio_handle.spawn(async move {
-                                                        if let Err(err) =
-                                                            crate::platform::clipboard::write_clipboard_text(
-                                                                content_to_write,
-                                                            )
-                                                            .await
-                                                        {
-                                                            log::error!(
-                                                                "write clipboard text failed: {}",
-                                                                err
-                                                            );
-                                                        }
+                                                    let window_handle = window.window_handle();
+                                                    let join = tokio_handle.spawn(async move {
+                                                        crate::platform::clipboard::write_clipboard_text(
+                                                            content_to_write,
+                                                        )
+                                                        .await
+                                                        .unwrap_or(false)
                                                     });
+                                                    cx.spawn(async move |_this, cx| {
+                                                        let copied = join.await.unwrap_or(false);
+                                                        let _ = window_handle.update(cx, |_, window, cx| {
+                                                            if copied {
+                                                                let _ = page.update(cx, |this, cx| {
+                                                                    this.show_copy_success_toast(window, cx);
+                                                                });
+                                                            }
+                                                        });
+                                                    })
+                                                    .detach();
                                                 }
                                             },
                                         )),

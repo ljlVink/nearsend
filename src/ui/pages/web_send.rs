@@ -1,7 +1,8 @@
 use crate::core::share_links::SharedEntry;
 use crate::ui::pages::HomePage;
-use gpui::{div, prelude::*, px, Context, Entity, Window};
+use gpui::{div, hsla, prelude::*, px, Context, Entity, Window};
 use gpui_component::input::{Input, InputState};
+use gpui_component::notification::Notification;
 use gpui_component::scroll::ScrollableElement as _;
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -11,6 +12,7 @@ use gpui_router::RouterState;
 use qrcode::types::Color;
 use qrcode::QrCode;
 use std::collections::HashMap;
+use std::time::Duration;
 
 struct CachedQr {
     size: usize,
@@ -222,6 +224,50 @@ impl WebSendPage {
                 .alert()
                 .button_props(gpui_component::dialog::DialogButtonProps::default().ok_text("确定"))
         });
+    }
+
+    fn show_copy_success_toast(&self, window: &mut Window, cx: &mut Context<Self>) {
+        struct CopySuccessToast;
+        window.push_notification(
+            Notification::new()
+                .id::<CopySuccessToast>()
+                .autohide(false)
+                .content(|_, _, _| {
+                    div()
+                        .w_full()
+                        .text_xs()
+                        .text_center()
+                        .child("复制成功")
+                        .into_any_element()
+                })
+                .w(px(92.))
+                .py(px(4.))
+                .px(px(10.))
+                .rounded_full()
+                .shadow_none()
+                .border_color(hsla(0.0, 0.0, 0.0, 0.0))
+                .bg(hsla(0.0, 0.0, 0.12, 0.92))
+                .text_color(hsla(0.0, 0.0, 1.0, 0.96)),
+            cx,
+        );
+        let window_handle = window.window_handle();
+        let tokio_handle = self
+            .home_entity
+            .read(cx)
+            .app_state
+            .read(cx)
+            .tokio_handle
+            .clone();
+        let dismiss = tokio_handle.spawn(async move {
+            tokio::time::sleep(Duration::from_millis(1500)).await;
+        });
+        cx.spawn(async move |_this, cx| {
+            let _ = dismiss.await;
+            let _ = window_handle.update(cx, |_, window, cx| {
+                window.remove_notification::<CopySuccessToast>(cx);
+            });
+        })
+        .detach();
     }
 
     fn make_compact_qr(content: &str) -> Option<CachedQr> {
@@ -505,15 +551,18 @@ impl gpui::Render for WebSendPage {
                                                                 let copied = join.await.unwrap_or(false);
                                                                 let _ = window_handle.update(cx, |_, window, cx| {
                                                                     let _ = page.update(cx, |this, _cx| {
-                                                                        this.open_notice_dialog(
-                                                                            if copied {
-                                                                                "链接已复制到剪贴板。"
-                                                                            } else {
-                                                                                "复制失败，请手动复制链接。"
-                                                                            },
-                                                                            window,
-                                                                            _cx,
-                                                                        );
+                                                                        if copied {
+                                                                            this.show_copy_success_toast(
+                                                                                window,
+                                                                                _cx,
+                                                                            );
+                                                                        } else {
+                                                                            this.open_notice_dialog(
+                                                                                "复制失败，请手动复制链接。",
+                                                                                window,
+                                                                                _cx,
+                                                                            );
+                                                                        }
                                                                     });
                                                                 });
                                                             })
