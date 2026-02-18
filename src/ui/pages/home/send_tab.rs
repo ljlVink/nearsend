@@ -473,10 +473,58 @@ pub fn render_send_content(
                                                             let home_single = home_entity.clone();
                                                             let home_multiple = home_entity.clone();
                                                             let home_link = home_entity.clone();
+                                                            let home_help = home_entity.clone();
                                                             v_flex()
                                                                 .w(px(248.))
                                                                 .py(px(4.))
                                                                 .gap(px(2.))
+                                                                .child(
+                                                                    div()
+                                                                        .id("send-mode-link-inline")
+                                                                        .w_full()
+                                                                        .h(px(40.))
+                                                                        .px(px(10.))
+                                                                        .rounded_md()
+                                                                        .cursor_pointer()
+                                                                        .on_click(move |_event, window, cx| {
+                                                                            let _ = home_link.update(cx, |this, cx| {
+                                                                                this.send_state.show_send_mode_menu = false;
+                                                                                if this.send_state.selected_files.is_empty() {
+                                                                                    this.open_simple_notice_dialog(
+                                                                                        "请先选择要发送的文件或文本",
+                                                                                        window,
+                                                                                        cx,
+                                                                                    );
+                                                                                    return;
+                                                                                }
+                                                                                this.apply_send_mode_current(super::SendMode::Link);
+                                                                                gpui_router::RouterState::global_mut(cx).location.pathname =
+                                                                                    "/send/link".into();
+                                                                                window.refresh();
+                                                                            });
+                                                                        })
+                                                                        .when(matches!(current_mode, super::SendMode::Link), |this| {
+                                                                            this.bg(cx.theme().primary.opacity(0.14))
+                                                                        })
+                                                                        .child(
+                                                                            h_flex()
+                                                                                .w_full()
+                                                                                .h_full()
+                                                                                .justify_between()
+                                                                                .items_center()
+                                                                                .child(
+                                                                                    div()
+                                                                                        .text_sm()
+                                                                                        .when(matches!(current_mode, super::SendMode::Link), |this| this.font_semibold())
+                                                                                        .child("通过分享链接发送"),
+                                                                                )
+                                                                                .child(if matches!(current_mode, super::SendMode::Link) {
+                                                                                    Icon::default().path("icons/check.svg").with_size(Size::Small).into_any_element()
+                                                                                } else {
+                                                                                    div().w(px(16.)).into_any_element()
+                                                                                }),
+                                                                        ),
+                                                                )
                                                                 .child(
                                                                     div()
                                                                         .id("send-mode-single-inline")
@@ -487,7 +535,7 @@ pub fn render_send_content(
                                                                         .cursor_pointer()
                                                                         .on_click(move |_event, _window, cx| {
                                                                             let _ = home_single.update(cx, |this, _| {
-                                                                                this.apply_send_mode_default(super::SendMode::Single);
+                                                                                this.apply_send_mode_current(super::SendMode::Single);
                                                                                 this.send_state.show_send_mode_menu = false;
                                                                             });
                                                                         })
@@ -523,7 +571,7 @@ pub fn render_send_content(
                                                                         .cursor_pointer()
                                                                         .on_click(move |_event, _window, cx| {
                                                                             let _ = home_multiple.update(cx, |this, _| {
-                                                                                this.apply_send_mode_default(super::SendMode::Multiple);
+                                                                                this.apply_send_mode_current(super::SendMode::Multiple);
                                                                                 this.send_state.show_send_mode_menu = false;
                                                                             });
                                                                         })
@@ -551,31 +599,24 @@ pub fn render_send_content(
                                                                 )
                                                                 .child(
                                                                     div()
-                                                                        .id("send-mode-link-inline")
                                                                         .w_full()
-                                                                        .h(px(40.))
+                                                                        .h(px(1.))
+                                                                        .my(px(4.))
+                                                                        .bg(cx.theme().border.opacity(0.9)),
+                                                                )
+                                                                .child(
+                                                                    div()
+                                                                        .id("send-mode-help-inline")
+                                                                        .w_full()
+                                                                        .h(px(38.))
                                                                         .px(px(10.))
-                                                                        .rounded_md()
+                                                                        .bg(cx.theme().background.opacity(0.001))
                                                                         .cursor_pointer()
                                                                         .on_click(move |_event, window, cx| {
-                                                                            let _ = home_link.update(cx, |this, cx| {
+                                                                            let _ = home_help.update(cx, |this, cx| {
                                                                                 this.send_state.show_send_mode_menu = false;
-                                                                                if this.send_state.selected_files.is_empty() {
-                                                                                    this.open_simple_notice_dialog(
-                                                                                        "请先选择要发送的文件或文本",
-                                                                                        window,
-                                                                                        cx,
-                                                                                    );
-                                                                                    return;
-                                                                                }
-                                                                                this.apply_send_mode_default(super::SendMode::Link);
-                                                                                gpui_router::RouterState::global_mut(cx).location.pathname =
-                                                                                    "/send/link".into();
-                                                                                window.refresh();
+                                                                                this.open_send_mode_help_dialog(window, cx);
                                                                             });
-                                                                        })
-                                                                        .when(matches!(current_mode, super::SendMode::Link), |this| {
-                                                                            this.bg(cx.theme().primary.opacity(0.14))
                                                                         })
                                                                         .child(
                                                                             h_flex()
@@ -584,16 +625,23 @@ pub fn render_send_content(
                                                                                 .justify_between()
                                                                                 .items_center()
                                                                                 .child(
-                                                                                    div()
-                                                                                        .text_sm()
-                                                                                        .when(matches!(current_mode, super::SendMode::Link), |this| this.font_semibold())
-                                                                                        .child("通过分享链接发送"),
+                                                                                    h_flex()
+                                                                                        .items_center()
+                                                                                        .gap(px(8.))
+                                                                                        .child(
+                                                                                            Icon::default()
+                                                                                                .path("icons/info.svg")
+                                                                                                .with_size(Size::Small)
+                                                                                                .text_color(cx.theme().muted_foreground),
+                                                                                        )
+                                                                                        .child(
+                                                                                            div()
+                                                                                                .text_sm()
+                                                                                                .text_color(cx.theme().foreground)
+                                                                                                .child("发送模式说明"),
+                                                                                        ),
                                                                                 )
-                                                                                .child(if matches!(current_mode, super::SendMode::Link) {
-                                                                                    Icon::default().path("icons/check.svg").with_size(Size::Small).into_any_element()
-                                                                                } else {
-                                                                                    div().w(px(16.)).into_any_element()
-                                                                                }),
+                                                                                .child(div().w(px(16.))),
                                                                         ),
                                                                 )
                                                         }

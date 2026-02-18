@@ -235,8 +235,19 @@ impl HomePage {
         }
     }
 
-    pub(super) fn apply_send_mode_default(&mut self, mode: SendMode) {
+    pub(super) fn send_mode_setting_label(mode: SendModeSetting) -> &'static str {
+        match mode {
+            SendModeSetting::Single => "单设备",
+            SendModeSetting::Multiple => "多设备",
+            SendModeSetting::Link => "链接分享",
+        }
+    }
+
+    pub(super) fn apply_send_mode_current(&mut self, mode: SendMode) {
         self.send_state.send_mode = mode;
+    }
+
+    pub(super) fn apply_send_mode_default(&mut self, mode: SendMode) {
         self.settings_state.send_mode_default = match mode {
             SendMode::Single => SendModeSetting::Single,
             SendMode::Multiple => SendModeSetting::Multiple,
@@ -1513,7 +1524,7 @@ impl HomePage {
     }
 
     pub(super) fn open_send_mode_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let current_mode = self.send_state.send_mode;
+        let current_mode = self.settings_state.send_mode_default;
         let home_entity = cx.entity();
         window.open_dialog(cx, move |dialog, _window, _cx| {
             let home_single = home_entity.clone();
@@ -1544,16 +1555,18 @@ impl HomePage {
                                         .justify_between()
                                         .items_center()
                                         .child(div().text_sm().child("单接收者"))
-                                        .child(if matches!(current_mode, SendMode::Single) {
-                                            Icon::default()
-                                                .path("icons/check.svg")
-                                                .with_size(Size::Small)
-                                        } else {
-                                            Icon::default()
-                                                .path("icons/more-horizontal.svg")
-                                                .with_size(Size::Small)
-                                                .text_color(_cx.theme().muted_foreground)
-                                        }),
+                                        .child(
+                                            if matches!(current_mode, SendModeSetting::Single) {
+                                                Icon::default()
+                                                    .path("icons/check.svg")
+                                                    .with_size(Size::Small)
+                                            } else {
+                                                Icon::default()
+                                                    .path("icons/more-horizontal.svg")
+                                                    .with_size(Size::Small)
+                                                    .text_color(_cx.theme().muted_foreground)
+                                            },
+                                        ),
                                 ),
                         )
                         .child(
@@ -1573,16 +1586,18 @@ impl HomePage {
                                         .justify_between()
                                         .items_center()
                                         .child(div().text_sm().child("多个接收者"))
-                                        .child(if matches!(current_mode, SendMode::Multiple) {
-                                            Icon::default()
-                                                .path("icons/check.svg")
-                                                .with_size(Size::Small)
-                                        } else {
-                                            Icon::default()
-                                                .path("icons/more-horizontal.svg")
-                                                .with_size(Size::Small)
-                                                .text_color(_cx.theme().muted_foreground)
-                                        }),
+                                        .child(
+                                            if matches!(current_mode, SendModeSetting::Multiple) {
+                                                Icon::default()
+                                                    .path("icons/check.svg")
+                                                    .with_size(Size::Small)
+                                            } else {
+                                                Icon::default()
+                                                    .path("icons/more-horizontal.svg")
+                                                    .with_size(Size::Small)
+                                                    .text_color(_cx.theme().muted_foreground)
+                                            },
+                                        ),
                                 ),
                         )
                         .child(
@@ -1620,7 +1635,7 @@ impl HomePage {
                                         .justify_between()
                                         .items_center()
                                         .child(div().text_sm().child("通过分享链接发送"))
-                                        .child(if matches!(current_mode, SendMode::Link) {
+                                        .child(if matches!(current_mode, SendModeSetting::Link) {
                                             Icon::default()
                                                 .path("icons/check.svg")
                                                 .with_size(Size::Small)
@@ -1631,6 +1646,68 @@ impl HomePage {
                                                 .text_color(_cx.theme().muted_foreground)
                                         }),
                                 ),
+                        ),
+                )
+                .alert()
+                .button_props(gpui_component::dialog::DialogButtonProps::default().ok_text("关闭"))
+        });
+    }
+
+    pub(super) fn open_send_mode_help_dialog(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            dialog
+                .title("发送模式说明")
+                .overlay(true)
+                .w(px(360.))
+                .child(
+                    v_flex()
+                        .w_full()
+                        .gap(px(10.))
+                        .child(
+                            div()
+                                .text_sm()
+                                .font_semibold()
+                                .text_color(_cx.theme().foreground)
+                                .child("单接收者"),
+                        )
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(_cx.theme().muted_foreground)
+                                .line_height(px(20.))
+                                .child("一次只发送给 1 台设备。发送完成后会自动清空当前发送列表。"),
+                        )
+                        .child(
+                            div()
+                                .text_sm()
+                                .font_semibold()
+                                .text_color(_cx.theme().foreground)
+                                .child("多个接收者"),
+                        )
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(_cx.theme().muted_foreground)
+                                .line_height(px(20.))
+                                .child("可同时选择多个接收者。发送完成后会保留当前发送列表，便于再次发送。"),
+                        )
+                        .child(
+                            div()
+                                .text_sm()
+                                .font_semibold()
+                                .text_color(_cx.theme().foreground)
+                                .child("链接分享"),
+                        )
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(_cx.theme().muted_foreground)
+                                .line_height(px(20.))
+                                .child("生成分享链接和二维码，对方可在浏览器打开并下载，无需安装 NearSend。"),
                         ),
                 )
                 .alert()
@@ -1652,7 +1729,7 @@ impl HomePage {
         if matches!(next_mode, SendMode::Link) && !self.ensure_has_selected_files(window, cx) {
             return;
         }
-        self.apply_send_mode_default(next_mode);
+        self.apply_send_mode_current(next_mode);
         if matches!(next_mode, SendMode::Link) {
             RouterState::global_mut(cx).location.pathname = "/send/link".into();
             window.refresh();

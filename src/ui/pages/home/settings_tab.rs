@@ -162,7 +162,8 @@ pub fn render_settings_content(
     let server_alias = app.settings_state.server_alias.clone();
     let server_port = app.settings_state.server_port;
     let network_filtered = app.settings_state.network_filtered;
-    let send_mode_text = HomePage::send_mode_label(app.send_state.send_mode).to_string();
+    let send_mode_text =
+        HomePage::send_mode_setting_label(app.settings_state.send_mode_default).to_string();
     let share_link_auto_accept = app.settings_state.share_via_link_auto_accept;
     let quick_save = app.settings_state.quick_save;
     let quick_save_favorites = app.settings_state.quick_save_favorites;
