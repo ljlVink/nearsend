@@ -4,21 +4,6 @@ import pasteboard from "@ohos.pasteboard";
 import { RustAbility } from "@ohos-rs/ability";
 import nearSend from "libnear_send.so";
 
-interface NearSendBridge {
-  setPreferencesPath?: (preferencesPath: string) => void;
-  registerFilePickerCallbacks?: (
-    pickFiles: () => Promise<Array<string>>,
-    pickFolders: () => Promise<Array<string>>,
-    pickSaveDirectory: () => Promise<string>,
-  ) => void;
-  registerClipboardCallbacks?: (
-    readClipboard: () => Promise<string>,
-    writeClipboard: (text: string) => Promise<boolean>,
-  ) => void;
-  registerSaveFileCallback?: (saveFile: (fileName: string) => Promise<string>) => void;
-  registerOpenFileCallback?: (openFile: (uri: string) => Promise<boolean>) => void;
-}
-
 export default class EntryAbility extends RustAbility {
   public moduleName: string = "near_send";
 
@@ -129,7 +114,7 @@ export default class EntryAbility extends RustAbility {
   }
 
   public async onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): Promise<void> {
-    const nearSendBridge = nearSend as NearSendBridge;
+    const nearSendBridge = nearSend;
     const setPreferencesPathFn = nearSendBridge.setPreferencesPath;
     const preferencesDir = this.context?.preferencesDir;
     if (

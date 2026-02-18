@@ -36,6 +36,16 @@ export declare function registerClipboardCallbacks(
   writeClipboard: (arg: string) => unknown,
 ): void;
 
+export declare function registerFilePickerCallbacks(
+  pickFiles: () => unknown,
+  pickFolders: () => unknown,
+  pickSaveDirectory: () => unknown,
+): void;
+
+export declare function registerOpenFileCallback(openFile: (arg: string) => unknown): void;
+
+export declare function registerSaveFileCallback(saveFile: (arg: string) => unknown): void;
+
 export declare function render(helper: object, slot: NodeContent): void;
 
 export declare function setPreferencesPath(preferencesPath: string): void;
