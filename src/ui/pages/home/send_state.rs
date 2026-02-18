@@ -4,6 +4,8 @@ use localsend::http::state::ClientInfo;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex};
 
 /// Send content type: 文件 / 媒体 / 文本 / 文件夹
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
@@ -55,6 +57,14 @@ pub struct DeviceEndpoint {
     pub https: bool,
 }
 
+#[derive(Clone, Debug)]
+pub struct ActiveSendContext {
+    pub ip: String,
+    pub port: u16,
+    pub scheme: Option<String>,
+    pub session_id: Option<String>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FavoriteDevice {
     pub token: String,
@@ -90,6 +100,11 @@ pub struct SendPageState {
     pub pending_send: bool,
     pub session_status: SendSessionStatus,
     pub session_status_text: Option<String>,
+    pub last_send_ip: Option<String>,
+    pub last_send_port: Option<u16>,
+    pub active_send_cancel_flag: Option<Arc<AtomicBool>>,
+    pub active_send_context: Option<Arc<Mutex<ActiveSendContext>>>,
+    pub active_transfer_id: Option<String>,
     pub has_scanned_once: bool,
     pub suppress_next_nearby_row_click: bool,
     pub favorite_tokens: HashSet<String>,
@@ -154,6 +169,11 @@ impl Default for SendPageState {
             pending_send: false,
             session_status: SendSessionStatus::Idle,
             session_status_text: None,
+            last_send_ip: None,
+            last_send_port: None,
+            active_send_cancel_flag: None,
+            active_send_context: None,
+            active_transfer_id: None,
             has_scanned_once: false,
             suppress_next_nearby_row_click: false,
             favorite_tokens: loaded_favorites.tokens,

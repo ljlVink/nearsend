@@ -8,13 +8,21 @@ use gpui_component::{
     h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _, Size, StyledExt as _, WindowExt as _,
 };
 use gpui_router::RouterState;
-use qrcodegen::{QrCode, QrCodeEcc};
+use qrcode::types::Color;
+use qrcode::QrCode;
+use std::collections::HashMap;
+
+struct CachedQr {
+    size: usize,
+    modules: Vec<bool>,
+}
 
 pub struct WebSendPage {
     home_entity: Entity<HomePage>,
     share_links: Vec<String>,
     share_id: Option<String>,
     error_text: Option<String>,
+    qr_cache: HashMap<String, CachedQr>,
 }
 
 impl WebSendPage {
@@ -24,6 +32,7 @@ impl WebSendPage {
             share_links: Vec::new(),
             share_id: None,
             error_text: None,
+            qr_cache: HashMap::new(),
         }
     }
 
@@ -68,6 +77,8 @@ impl WebSendPage {
             links = Self::build_links_for_home(home, &share_id);
         });
         self.share_links = links;
+        self.qr_cache
+            .retain(|link, _| self.share_links.contains(link));
     }
 
     fn ensure_share_link(&mut self, cx: &mut Context<Self>) {
@@ -115,6 +126,7 @@ impl WebSendPage {
         self.share_id = None;
         self.share_links.clear();
         self.error_text = None;
+        self.qr_cache.clear();
         self.ensure_share_link(cx);
     }
 
@@ -212,57 +224,114 @@ impl WebSendPage {
         });
     }
 
-    fn make_ascii_qr(content: &str) -> Option<String> {
-        let qr = QrCode::encode_text(content, QrCodeEcc::Medium).ok()?;
-        let border: i32 = 2;
-        let size = qr.size();
-        let mut out = String::new();
-        let mut y = -border;
-        while y < size + border {
-            let mut x = -border;
-            while x < size + border {
-                let black = qr.get_module(x, y);
-                out.push_str(if black { "##" } else { "  " });
-                x += 1;
+    fn make_compact_qr(content: &str) -> Option<CachedQr> {
+        let qr = QrCode::new(content.as_bytes()).ok()?;
+        let src_width = qr.width();
+        let src = qr.to_colors();
+        let border = 2usize;
+        let dst_size = src_width + border * 2;
+        let mut modules = vec![false; dst_size * dst_size];
+        for y in 0..dst_size {
+            for x in 0..dst_size {
+                if x >= border && x < border + src_width && y >= border && y < border + src_width {
+                    let sx = x - border;
+                    let sy = y - border;
+                    modules[y * dst_size + x] = src[sy * src_width + sx] == Color::Dark;
+                }
             }
-            out.push('\n');
-            y += 1;
         }
-        Some(out)
+        Some(CachedQr {
+            size: dst_size,
+            modules,
+        })
     }
 
     fn open_qr_dialog(
-        &self,
+        &mut self,
         link: &str,
         pin_hint: Option<String>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let content = Self::make_ascii_qr(link).unwrap_or_else(|| "二维码生成失败".to_string());
+        let cached_qr = if let Some(cached) = self.qr_cache.get(link) {
+            CachedQr {
+                size: cached.size,
+                modules: cached.modules.clone(),
+            }
+        } else {
+            let generated = Self::make_compact_qr(link).unwrap_or_else(|| CachedQr {
+                size: 1,
+                modules: vec![false],
+            });
+            self.qr_cache.insert(
+                link.to_string(),
+                CachedQr {
+                    size: generated.size,
+                    modules: generated.modules.clone(),
+                },
+            );
+            generated
+        };
+        let qr_size = cached_qr.size;
+        let qr_modules = cached_qr.modules;
+        let module_px = ((220.0 / qr_size as f32).floor()).clamp(3.0, 7.0);
+        let qr_box_px = module_px * qr_size as f32;
         let link_text = link.to_string();
         window.open_dialog(cx, move |dialog, _window, _cx| {
             dialog
                 .title("分享链接二维码")
                 .overlay(true)
-                .w(px(520.))
+                .w(px(360.))
                 .child(
                     v_flex()
                         .w_full()
-                        .gap(px(8.))
+                        .items_center()
+                        .gap(px(6.))
                         .child(
                             div()
+                                .w_full()
+                                .max_w(px(300.))
+                                .overflow_hidden()
                                 .text_xs()
                                 .text_color(_cx.theme().muted_foreground)
+                                .truncate()
                                 .child(link_text.clone()),
                         )
                         .child(
                             div()
                                 .w_full()
+                                .max_w(px(300.))
                                 .rounded_md()
                                 .bg(_cx.theme().muted)
-                                .p(px(10.))
-                                .text_xs()
-                                .child(content.clone()),
+                                .p(px(8.))
+                                .child(
+                                    div().w_full().flex().justify_center().child(
+                                        v_flex()
+                                            .rounded_sm()
+                                            .border_1()
+                                            .border_color(_cx.theme().border)
+                                            .bg(_cx.theme().background)
+                                            .p(px(6.))
+                                            .w(px(qr_box_px))
+                                            .h(px(qr_box_px))
+                                            .children((0..qr_size).map(|row| {
+                                                h_flex()
+                                                    .w_full()
+                                                    .h(px(module_px))
+                                                    .gap(px(0.))
+                                                    .children((0..qr_size).map(|col| {
+                                                        let dark = qr_modules[row * qr_size + col];
+                                                        div().w(px(module_px)).h(px(module_px)).bg(
+                                                            if dark {
+                                                                _cx.theme().foreground
+                                                            } else {
+                                                                _cx.theme().background
+                                                            },
+                                                        )
+                                                    }))
+                                            })),
+                                    ),
+                                ),
                         )
                         .when_some(pin_hint.clone(), |this, pin| {
                             this.child(
@@ -323,7 +392,18 @@ impl gpui::Render for WebSendPage {
                                     .child("分享链接"),
                             ),
                     )
-                    .child(div().w(px(40.))),
+                    .child(
+                        Button::new("web-send-refresh-link")
+                            .ghost()
+                            .on_click(cx.listener(|this, _event, _window, cx| {
+                                this.regenerate_share_link(cx);
+                            }))
+                            .child(
+                                Icon::default()
+                                    .path("icons/refresh.svg")
+                                    .with_size(Size::Small),
+                            ),
+                    ),
             )
             .child(
                 div().flex_1().w_full().overflow_y_scrollbar().child(
@@ -364,90 +444,89 @@ impl gpui::Render for WebSendPage {
                                         } else {
                                             None
                                         };
-                                        v_flex()
-                                            .gap(px(6.))
+                                        h_flex()
+                                            .w_full()
+                                            .items_center()
+                                            .gap(px(8.))
                                             .child(
                                                 div()
-                                                    .w_full()
+                                                    .flex_1()
+                                                    .overflow_hidden()
                                                     .rounded_md()
                                                     .bg(cx.theme().muted)
                                                     .px(px(10.))
-                                                    .py(px(8.))
+                                                    .py(px(7.))
                                                     .text_sm()
+                                                    .truncate()
                                                     .child(link.clone()),
                                             )
                                             .child(
-                                                h_flex()
-                                                    .justify_end()
-                                                    .gap(px(8.))
+                                                Button::new(qr_button_id)
+                                                    .ghost()
+                                                    .on_click(cx.listener(
+                                                        move |this, _event, window, cx| {
+                                                            this.open_qr_dialog(
+                                                                &qr_link_text,
+                                                                pin_hint.clone(),
+                                                                window,
+                                                                cx,
+                                                            );
+                                                        },
+                                                    ))
                                                     .child(
-                                                        Button::new(qr_button_id)
-                                                            .outline()
-                                                            .on_click(cx.listener(
-                                                                move |this, _event, window, cx| {
-                                                                    this.open_qr_dialog(
-                                                                        &qr_link_text,
-                                                                        pin_hint.clone(),
-                                                                        window,
-                                                                        cx,
-                                                                    );
-                                                                },
-                                                            ))
-                                                            .child("二维码"),
-                                                    )
-                                                    .child(
-                                                        Button::new(button_id)
-                                                            .primary()
-                                                            .on_click(cx.listener(
-                                                                move |this, _event, window, cx| {
-                                                                    let page = cx.entity();
-                                                                    let window_handle = window.window_handle();
-                                                                    let tokio_handle = this
-                                                                        .home_entity
-                                                                        .read(cx)
-                                                                        .app_state
-                                                                        .read(cx)
-                                                                        .tokio_handle
-                                                                        .clone();
-                                                                    let link_for_copy = copy_link_text.clone();
-                                                                    let join = tokio_handle.spawn(async move {
-                                                                        crate::platform::clipboard::write_clipboard_text(
-                                                                            link_for_copy,
-                                                                        )
-                                                                        .await
-                                                                        .unwrap_or(false)
+                                                        Icon::default()
+                                                            .path("icons/qr-code.svg")
+                                                            .with_size(Size::Small),
+                                                    ),
+                                            )
+                                            .child(
+                                                Button::new(button_id)
+                                                    .ghost()
+                                                    .on_click(cx.listener(
+                                                        move |this, _event, window, cx| {
+                                                            let page = cx.entity();
+                                                            let window_handle = window.window_handle();
+                                                            let tokio_handle = this
+                                                                .home_entity
+                                                                .read(cx)
+                                                                .app_state
+                                                                .read(cx)
+                                                                .tokio_handle
+                                                                .clone();
+                                                            let link_for_copy = copy_link_text.clone();
+                                                            let join = tokio_handle.spawn(async move {
+                                                                crate::platform::clipboard::write_clipboard_text(
+                                                                    link_for_copy,
+                                                                )
+                                                                .await
+                                                                .unwrap_or(false)
+                                                            });
+                                                            cx.spawn(async move |_this, cx| {
+                                                                let copied = join.await.unwrap_or(false);
+                                                                let _ = window_handle.update(cx, |_, window, cx| {
+                                                                    let _ = page.update(cx, |this, _cx| {
+                                                                        this.open_notice_dialog(
+                                                                            if copied {
+                                                                                "链接已复制到剪贴板。"
+                                                                            } else {
+                                                                                "复制失败，请手动复制链接。"
+                                                                            },
+                                                                            window,
+                                                                            _cx,
+                                                                        );
                                                                     });
-                                                                    cx.spawn(async move |_this, cx| {
-                                                                        let copied = join.await.unwrap_or(false);
-                                                                        let _ = window_handle.update(cx, |_, window, cx| {
-                                                                            let _ = page.update(cx, |this, _cx| {
-                                                                                this.open_notice_dialog(
-                                                                                    if copied {
-                                                                                        "链接已复制到剪贴板。"
-                                                                                    } else {
-                                                                                        "复制失败，请手动复制链接。"
-                                                                                    },
-                                                                                    window,
-                                                                                    _cx,
-                                                                                );
-                                                                            });
-                                                                        });
-                                                                    })
-                                                                    .detach();
-                                                                },
-                                                            ))
-                                                            .child("复制链接"),
+                                                                });
+                                                            })
+                                                            .detach();
+                                                        },
+                                                    ))
+                                                    .child(
+                                                        Icon::default()
+                                                            .path("icons/copy.svg")
+                                                            .with_size(Size::Small),
                                                     ),
                                             )
                                     }))
-                                    .child(
-                                        Button::new("web-send-refresh-link")
-                                            .outline()
-                                            .on_click(cx.listener(|this, _event, _window, cx| {
-                                                this.regenerate_share_link(cx);
-                                            }))
-                                            .child("重新生成链接"),
-                                    ),
                             )
                         })
                         .child(

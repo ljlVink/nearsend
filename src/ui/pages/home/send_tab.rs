@@ -474,67 +474,89 @@ pub fn render_send_content(
                                                             let home_multiple = home_entity.clone();
                                                             let home_link = home_entity.clone();
                                                             v_flex()
-                                                                .w(px(220.))
-                                                                .gap(px(6.))
+                                                                .w(px(248.))
+                                                                .py(px(4.))
+                                                                .gap(px(2.))
                                                                 .child(
-                                                                    Button::new("send-mode-single-inline")
-                                                                        .with_variant(gpui_component::button::ButtonVariant::Secondary)
-                                                                        .outline()
+                                                                    div()
+                                                                        .id("send-mode-single-inline")
                                                                         .w_full()
+                                                                        .h(px(40.))
+                                                                        .px(px(10.))
+                                                                        .rounded_md()
+                                                                        .cursor_pointer()
                                                                         .on_click(move |_event, _window, cx| {
                                                                             let _ = home_single.update(cx, |this, _| {
                                                                                 this.apply_send_mode_default(super::SendMode::Single);
                                                                                 this.send_state.show_send_mode_menu = false;
                                                                             });
                                                                         })
+                                                                        .when(matches!(current_mode, super::SendMode::Single), |this| {
+                                                                            this.bg(cx.theme().primary.opacity(0.14))
+                                                                        })
                                                                         .child(
                                                                             h_flex()
                                                                                 .w_full()
+                                                                                .h_full()
                                                                                 .justify_between()
                                                                                 .items_center()
-                                                                                .child(div().text_sm().child("单接收者"))
+                                                                                .child(
+                                                                                    div()
+                                                                                        .text_sm()
+                                                                                        .when(matches!(current_mode, super::SendMode::Single), |this| this.font_semibold())
+                                                                                        .child("单接收者"),
+                                                                                )
                                                                                 .child(if matches!(current_mode, super::SendMode::Single) {
-                                                                                    Icon::default().path("icons/check.svg").with_size(Size::Small)
+                                                                                    Icon::default().path("icons/check.svg").with_size(Size::Small).into_any_element()
                                                                                 } else {
-                                                                                    Icon::default()
-                                                                                        .path("icons/more-horizontal.svg")
-                                                                                        .with_size(Size::Small)
-                                                                                        .text_color(cx.theme().muted_foreground)
+                                                                                    div().w(px(16.)).into_any_element()
                                                                                 }),
                                                                         ),
                                                                 )
                                                                 .child(
-                                                                    Button::new("send-mode-multiple-inline")
-                                                                        .with_variant(gpui_component::button::ButtonVariant::Secondary)
-                                                                        .outline()
+                                                                    div()
+                                                                        .id("send-mode-multiple-inline")
                                                                         .w_full()
+                                                                        .h(px(40.))
+                                                                        .px(px(10.))
+                                                                        .rounded_md()
+                                                                        .cursor_pointer()
                                                                         .on_click(move |_event, _window, cx| {
                                                                             let _ = home_multiple.update(cx, |this, _| {
                                                                                 this.apply_send_mode_default(super::SendMode::Multiple);
                                                                                 this.send_state.show_send_mode_menu = false;
                                                                             });
                                                                         })
+                                                                        .when(matches!(current_mode, super::SendMode::Multiple), |this| {
+                                                                            this.bg(cx.theme().primary.opacity(0.14))
+                                                                        })
                                                                         .child(
                                                                             h_flex()
                                                                                 .w_full()
+                                                                                .h_full()
                                                                                 .justify_between()
                                                                                 .items_center()
-                                                                                .child(div().text_sm().child("多个接收者"))
+                                                                                .child(
+                                                                                    div()
+                                                                                        .text_sm()
+                                                                                        .when(matches!(current_mode, super::SendMode::Multiple), |this| this.font_semibold())
+                                                                                        .child("多个接收者"),
+                                                                                )
                                                                                 .child(if matches!(current_mode, super::SendMode::Multiple) {
-                                                                                    Icon::default().path("icons/check.svg").with_size(Size::Small)
+                                                                                    Icon::default().path("icons/check.svg").with_size(Size::Small).into_any_element()
                                                                                 } else {
-                                                                                    Icon::default()
-                                                                                        .path("icons/more-horizontal.svg")
-                                                                                        .with_size(Size::Small)
-                                                                                        .text_color(cx.theme().muted_foreground)
+                                                                                    div().w(px(16.)).into_any_element()
                                                                                 }),
                                                                         ),
                                                                 )
                                                                 .child(
-                                                                    Button::new("send-mode-link-inline")
-                                                                        .with_variant(gpui_component::button::ButtonVariant::Secondary)
-                                                                        .outline()
+                                                                    div()
+                                                                        .id("send-mode-link-inline")
                                                                         .w_full()
+                                                                        .h(px(40.))
+                                                                        .px(px(10.))
+                                                                        .rounded_md()
+                                                                        .cursor_pointer()
                                                                         .on_click(move |_event, window, cx| {
                                                                             let _ = home_link.update(cx, |this, cx| {
                                                                                 this.send_state.show_send_mode_menu = false;
@@ -552,19 +574,25 @@ pub fn render_send_content(
                                                                                 window.refresh();
                                                                             });
                                                                         })
+                                                                        .when(matches!(current_mode, super::SendMode::Link), |this| {
+                                                                            this.bg(cx.theme().primary.opacity(0.14))
+                                                                        })
                                                                         .child(
                                                                             h_flex()
                                                                                 .w_full()
+                                                                                .h_full()
                                                                                 .justify_between()
                                                                                 .items_center()
-                                                                                .child(div().text_sm().child("通过分享链接发送"))
+                                                                                .child(
+                                                                                    div()
+                                                                                        .text_sm()
+                                                                                        .when(matches!(current_mode, super::SendMode::Link), |this| this.font_semibold())
+                                                                                        .child("通过分享链接发送"),
+                                                                                )
                                                                                 .child(if matches!(current_mode, super::SendMode::Link) {
-                                                                                    Icon::default().path("icons/check.svg").with_size(Size::Small)
+                                                                                    Icon::default().path("icons/check.svg").with_size(Size::Small).into_any_element()
                                                                                 } else {
-                                                                                    Icon::default()
-                                                                                        .path("icons/more-horizontal.svg")
-                                                                                        .with_size(Size::Small)
-                                                                                        .text_color(cx.theme().muted_foreground)
+                                                                                    div().w(px(16.)).into_any_element()
                                                                                 }),
                                                                         ),
                                                                 )

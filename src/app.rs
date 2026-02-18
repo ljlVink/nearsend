@@ -87,6 +87,8 @@ impl gpui::Render for AppRoot {
 
         let _ = self.home_entity.update(cx, |home, cx| {
             home.poll_incoming_events(window, cx);
+            home.poll_send_cancel_event(window, cx);
+            home.poll_send_retry_event(window, cx);
         });
 
         let sheet_layer = Root::render_sheet_layer(window, cx);

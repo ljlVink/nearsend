@@ -7,11 +7,11 @@
         "material": {
           "certpath": "/Users/ranger/.ohos/config/default_ohos_v3uu9juekAoDOEqwMtu9rdEz0iYXpwxHCQEO8LsMI9o=.cer",
           "keyAlias": "debugKey",
-          "keyPassword": "0000001BAEC1336FDFD28FBF5AC2640923BC7F24914D779813CA95FD0B4FB93C20850DA7CE3F5460B7D938",
+          "keyPassword": "0000001AAC6942DE280046F0D701ECFEC1F4D9ADB29C49FCEAA735CAC40915E7131FED481D814353AC35",
           "profile": "/Users/ranger/.ohos/config/default_ohos_v3uu9juekAoDOEqwMtu9rdEz0iYXpwxHCQEO8LsMI9o=.p7b",
           "signAlg": "SHA256withECDSA",
           "storeFile": "/Users/ranger/.ohos/config/default_ohos_v3uu9juekAoDOEqwMtu9rdEz0iYXpwxHCQEO8LsMI9o=.p12",
-          "storePassword": "0000001BE38E7DE372FC72D8BC20DF82DF83A83E379317B5D50217E6DF6BD6A2F5743785CEEA89A948C9F0"
+          "storePassword": "0000001A50B5DFC2BFA503937E3FBD5BBB1642FABC59E73D25F0FBEBAE6506FF4C5A0F5F0478E06B71FC"
         }
       }
     ],

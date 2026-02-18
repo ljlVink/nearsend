@@ -19,19 +19,14 @@ use gpui_router::RouterState;
 /// Progress page: full-screen view of ongoing transfer.
 pub struct ProgressPage {
     transfer_state: Entity<TransferState>,
-    session_id: String,
     direction: TransferDirection,
-    // Cached transfer info for rendering
-    current_transfer: Option<TransferInfo>,
 }
 
 impl ProgressPage {
     pub fn new(transfer_state: Entity<TransferState>, direction: TransferDirection) -> Self {
         Self {
             transfer_state,
-            session_id: String::new(),
             direction,
-            current_transfer: None,
         }
     }
 }
@@ -48,32 +43,37 @@ impl gpui::Render for ProgressPage {
             TransferDirection::Receive => "icons/download.svg",
         };
 
-        // Use cached transfer or show empty state
-        let transfer = self.current_transfer.clone();
+        let transfer = self
+            .transfer_state
+            .read(cx)
+            .snapshot_latest_by_direction(self.direction);
 
-        let (progress_val, status, speed_text, file_count_text) = if let Some(ref t) = transfer {
-            let speed = if t.speed_bytes_per_sec > 0 {
-                format!("{}/s", format_bytes(t.speed_bytes_per_sec))
+        let (progress_val, status, speed_text, file_count_text, current_file_name) =
+            if let Some(ref t) = transfer {
+                let speed = if t.speed_bytes_per_sec > 0 {
+                    format!("{}/s", format_bytes(t.speed_bytes_per_sec))
+                } else {
+                    String::new()
+                };
+                let file_count = format!(
+                    "{}/{}",
+                    t.files
+                        .iter()
+                        .filter(|f| f.status == TransferStatus::Completed)
+                        .count(),
+                    t.files.len()
+                );
+                let current = t.file_name.clone();
+                (t.progress, t.status, speed, file_count, current)
             } else {
-                String::new()
+                (
+                    0.0,
+                    TransferStatus::Pending,
+                    String::new(),
+                    "0/0".to_string(),
+                    String::new(),
+                )
             };
-            let file_count = format!(
-                "{}/{}",
-                t.files
-                    .iter()
-                    .filter(|f| f.status == TransferStatus::Completed)
-                    .count(),
-                t.files.len()
-            );
-            (t.progress, t.status, speed, file_count)
-        } else {
-            (
-                0.0,
-                TransferStatus::Pending,
-                String::new(),
-                "0/0".to_string(),
-            )
-        };
 
         let is_done = matches!(
             status,
@@ -123,7 +123,26 @@ impl gpui::Render for ProgressPage {
                                     .child(direction_label),
                             ),
                     )
-                    .child(div().w(px(40.))), // spacer for centering
+                    .child(
+                        if self.direction == TransferDirection::Send
+                            && status != TransferStatus::InProgress
+                        {
+                            Button::new("progress-retry")
+                                .ghost()
+                                .on_click(cx.listener(|_this, _event, window, _cx| {
+                                    crate::core::send_retry_events::request_send_retry();
+                                    window.refresh();
+                                }))
+                                .child(
+                                    Icon::default()
+                                        .path("icons/refresh.svg")
+                                        .with_size(Size::Small),
+                                )
+                                .into_any_element()
+                        } else {
+                            div().w(px(40.)).into_any_element()
+                        },
+                    ),
             )
             // Content
             .child(
@@ -158,6 +177,17 @@ impl gpui::Render for ProgressPage {
                                         .value((progress_val * 100.0) as f32)
                                         .w_full(),
                                 )
+                                .when(!current_file_name.is_empty(), |this| {
+                                    this.child(
+                                        div()
+                                            .text_base()
+                                            .font_semibold()
+                                            .text_color(cx.theme().foreground)
+                                            .overflow_hidden()
+                                            .truncate()
+                                            .child(format!("当前文件：{}", current_file_name)),
+                                    )
+                                })
                                 .when(!speed_text.is_empty(), |this| {
                                     this.child(
                                         div()
@@ -223,8 +253,9 @@ impl gpui::Render for ProgressPage {
                     .with_variant(gpui_component::button::ButtonVariant::Danger)
                     .outline()
                     .w_full()
-                    .on_click(cx.listener(|_this, _event, _window, _cx| {
-                        log::info!("Cancel transfer");
+                    .on_click(cx.listener(|_this, _event, window, _cx| {
+                        crate::core::send_cancel_events::request_send_cancel();
+                        window.refresh();
                     }))
                     .child("取消")
             }))

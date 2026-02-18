@@ -31,6 +31,8 @@ const CUSTOM_ICONS: &[&str] = &[
     "icons/server.svg",
     "icons/arrow-left.svg",
     "icons/refresh.svg",
+    "icons/copy.svg",
+    "icons/qr-code.svg",
     "icons/image.svg",
     "icons/target.svg",
     "icons/more-horizontal.svg",
@@ -74,6 +76,8 @@ impl AssetSource for NearSendAssets {
                 Some(include_bytes!("../assets/icons/arrow-left.svg").as_slice())
             }
             "icons/refresh.svg" => Some(include_bytes!("../assets/icons/refresh.svg").as_slice()),
+            "icons/copy.svg" => Some(include_bytes!("../assets/icons/copy.svg").as_slice()),
+            "icons/qr-code.svg" => Some(include_bytes!("../assets/icons/qr-code.svg").as_slice()),
             "icons/image.svg" => Some(include_bytes!("../assets/icons/image.svg").as_slice()),
             "icons/target.svg" => Some(include_bytes!("../assets/icons/target.svg").as_slice()),
             "icons/more-horizontal.svg" => {
