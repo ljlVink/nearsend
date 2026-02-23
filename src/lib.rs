@@ -23,7 +23,7 @@ pub fn openharmony_app(app: OpenHarmonyApp) {
     let inner_app = app.clone();
     // Initialize and run GPUI application
     // The event loop is automatically integrated by the platform
-    Application::new()
+    Application::with_platform(gpui_platform::current_platform(false))
         .with_assets(assets::NearSendAssets(ComponentAssets))
         .with_ohos_app(app.clone())
         .run(move |cx: &mut App| {

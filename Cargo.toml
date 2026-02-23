@@ -9,10 +9,11 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-gpui = { git = "https://github.com/richerfu/zed.git", branch = "feat-shader" }
-gpui-component = { git = "https://github.com/richerfu/gpui-component.git" }
-gpui-router = { git = "https://github.com/richerfu/gpui-router.git", default-features = false }
-gpui-component-assets = { git = "https://github.com/richerfu/gpui-component.git" }
+gpui = { git = "https://github.com/richerfu/zed.git", rev = "f898c97d914071f3f239be5b90eb3e3615ebcdba" }
+gpui_platform = { git = "https://github.com/richerfu/zed.git", rev = "f898c97d914071f3f239be5b90eb3e3615ebcdba" }
+gpui-component = { git = "https://github.com/longbridge/gpui-component.git" }
+gpui-router = { version = "0.3" }
+gpui-component-assets = { git = "https://github.com/longbridge/gpui-component.git" }
 openharmony-ability = { git = "https://github.com/harmony-contrib/openharmony-ability.git" }
 openharmony-ability-derive = { git = "https://github.com/harmony-contrib/openharmony-ability.git" }
 
@@ -65,9 +66,14 @@ napi-build-ohos = { version = "=1.1.6" }
 
 # 强制 patch 所有来源的依赖，确保统一使用本地路径
 [patch.crates-io]
-blade-graphics = { git = "https://github.com/richerfu/blade.git" }
-gpui = { git = "https://github.com/richerfu/zed.git", branch = "feat-shader" }
+gpui = { git = "https://github.com/richerfu/zed.git", rev = "f898c97d914071f3f239be5b90eb3e3615ebcdba" }
+gpui_platform = { git = "https://github.com/richerfu/zed.git", rev = "f898c97d914071f3f239be5b90eb3e3615ebcdba" }
 
 
 [patch."https://github.com/zed-industries/zed.git"]
-gpui = { git = "https://github.com/richerfu/zed.git", branch = "feat-shader" }
+gpui = { git = "https://github.com/richerfu/zed.git", rev = "f898c97d914071f3f239be5b90eb3e3615ebcdba" }
+gpui_platform = { git = "https://github.com/richerfu/zed.git", rev = "f898c97d914071f3f239be5b90eb3e3615ebcdba" }
+
+[patch."https://github.com/zed-industries/zed"]
+gpui = { git = "https://github.com/richerfu/zed.git", rev = "f898c97d914071f3f239be5b90eb3e3615ebcdba" }
+gpui_platform = { git = "https://github.com/richerfu/zed.git", rev = "f898c97d914071f3f239be5b90eb3e3615ebcdba" }
