@@ -5,6 +5,7 @@ use crate::state::transfer_state::{
     TransferDirection, TransferInfo, TransferState, TransferStatus,
 };
 use crate::ui::components::transfer_item::TransferItem;
+use crate::ui::routes;
 use crate::ui::theme::spacing;
 use gpui::{div, prelude::*, px, Context, Entity, Window};
 use gpui_component::scroll::ScrollableElement as _;
@@ -99,7 +100,8 @@ impl gpui::Render for ProgressPage {
                                     .with_size(Size::Small),
                             )
                             .on_click(cx.listener(|_this, _event, window, cx| {
-                                RouterState::global_mut(cx).location.pathname = "/".into();
+                                RouterState::global_mut(cx).location.pathname =
+                                    routes::HOME.into();
                                 window.refresh();
                             })),
                     )
@@ -244,7 +246,7 @@ impl gpui::Render for ProgressPage {
                     .primary()
                     .w_full()
                     .on_click(cx.listener(|_this, _event, window, cx| {
-                        RouterState::global_mut(cx).location.pathname = "/".into();
+                        RouterState::global_mut(cx).location.pathname = routes::HOME.into();
                         window.refresh();
                     }))
                     .child("完成")

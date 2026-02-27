@@ -1,6 +1,7 @@
 use crate::state::{
     app_state::AppState, receive_inbox_state::ReceiveInboxState, transfer_state::TransferDirection,
 };
+use crate::ui::routes;
 use gpui::{div, hsla, prelude::*, px, Context, Entity, Window};
 use gpui_component::{
     button::{Button, ButtonCustomVariant, ButtonVariants as _},
@@ -384,7 +385,8 @@ impl gpui::Render for ReceiveIncomingPage {
                                         crate::core::receive_events::IncomingTransferDecision::Decline,
                                     );
                                     this.inbox_state.update(cx, |s, _| s.clear());
-                                    RouterState::global_mut(cx).location.pathname = "/".into();
+                                    RouterState::global_mut(cx).location.pathname =
+                                        routes::HOME.into();
                                     window.refresh();
                                 })),
                         )
@@ -440,7 +442,7 @@ impl gpui::Render for ReceiveIncomingPage {
                                 }
                             }
                             this.inbox_state.update(cx, |s, _| s.clear());
-                            RouterState::global_mut(cx).location.pathname = "/".into();
+                            RouterState::global_mut(cx).location.pathname = routes::HOME.into();
                             window.refresh();
                         })),
                 ),

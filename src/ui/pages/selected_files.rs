@@ -3,12 +3,14 @@
 
 use crate::state::app_state::AppState;
 use crate::state::send_selection_state::SendSelectionState;
+use crate::ui::routes;
 use crate::ui::theme::spacing;
 use gpui::{div, prelude::*, px, Context, Entity, Window};
 use gpui_component::input::{Input, InputState};
 use gpui_component::scroll::ScrollableElement as _;
 use gpui_component::{
     button::{Button, ButtonCustomVariant, ButtonVariants as _},
+    dialog::{DialogAction, DialogClose, DialogFooter},
     h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _, Size, StyledExt as _, WindowExt as _,
 };
 use gpui_router::RouterState;
@@ -50,7 +52,7 @@ impl SelectedFilesPage {
                 .overlay(true)
                 .w(px(320.))
                 .child(div().w_full().text_sm().child(msg.clone()))
-                .alert()
+                .footer(build_alert_dialog_footer("selected-files-notice", "确定"))
                 .button_props(gpui_component::dialog::DialogButtonProps::default().ok_text("确定"))
         });
     }
@@ -82,12 +84,17 @@ impl SelectedFilesPage {
                         .w_full()
                         .child(Input::new(&input_state).appearance(true)),
                 )
-                .confirm()
                 .button_props(
                     gpui_component::dialog::DialogButtonProps::default()
                         .ok_text("确认")
+                        .show_cancel(true)
                         .cancel_text("取消"),
                 )
+                .footer(build_confirm_dialog_footer(
+                    "selected-files-text-edit",
+                    "确认",
+                    "取消",
+                ))
                 .on_ok(move |_event, _window, cx| {
                     let text = input_for_ok.read(cx).value().to_string();
                     if text.is_empty() {
@@ -229,7 +236,7 @@ impl SelectedFilesPage {
                                         .gap(px(4.))
                                         .child(
                                             Icon::default()
-                                                .path("icons/external-link.svg")
+                                                .path("icons/copy.svg")
                                                 .with_size(gpui_component::Size::Medium)
                                                 .text_color(_cx.theme().foreground),
                                         )
@@ -237,7 +244,7 @@ impl SelectedFilesPage {
                                 ),
                         ),
                 )
-                .alert()
+                .footer(build_alert_dialog_footer("selected-files-add", "关闭"))
                 .button_props(gpui_component::dialog::DialogButtonProps::default().ok_text("关闭"))
         });
     }
@@ -417,7 +424,8 @@ impl gpui::Render for SelectedFilesPage {
                         Button::new("files-back")
                             .ghost()
                             .on_click(cx.listener(|_this, _event, window, cx| {
-                                RouterState::global_mut(cx).location.pathname = "/".into();
+                                RouterState::global_mut(cx).location.pathname =
+                                    routes::HOME.into();
                                 window.refresh();
                             }))
                             .child(
@@ -610,6 +618,26 @@ impl gpui::Render for SelectedFilesPage {
                 ),
             )
     }
+}
+
+fn build_confirm_dialog_footer(id_prefix: &str, ok_text: &str, cancel_text: &str) -> DialogFooter {
+    DialogFooter::new()
+        .child(
+            DialogClose::new().child(
+                Button::new(format!("{id_prefix}-cancel")).label(cancel_text.to_string()),
+            ),
+        )
+        .child(
+            DialogAction::new()
+                .child(Button::new(format!("{id_prefix}-ok")).label(ok_text.to_string()).primary()),
+        )
+}
+
+fn build_alert_dialog_footer(id_prefix: &str, ok_text: &str) -> DialogFooter {
+    DialogFooter::new().child(
+        DialogAction::new()
+            .child(Button::new(format!("{id_prefix}-ok")).label(ok_text.to_string()).primary()),
+    )
 }
 
 fn format_file_size(bytes: u64) -> String {

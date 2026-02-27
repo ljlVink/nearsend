@@ -3,12 +3,13 @@
 use super::HomePage;
 use super::QuickSaveMode;
 use crate::ui::components::logo::Logo;
+use crate::ui::routes;
 use crate::ui::theme::spacing;
 use gpui::{div, prelude::*, px, AnyElement, Context, Window};
 use gpui_component::scroll::ScrollableElement as _;
 use gpui_component::{
     button::{Button, ButtonCustomVariant, ButtonVariant, ButtonVariants as _},
-    dialog::DialogButtonProps,
+    dialog::{DialogAction, DialogButtonProps, DialogFooter},
     h_flex,
     popover::Popover,
     v_flex, ActiveTheme as _, Anchor, Icon, Sizable as _, Size, StyledExt as _, WindowExt as _,
@@ -55,7 +56,8 @@ pub fn render_receive_content(
                     "icons/history.svg",
                     cx,
                     |_this, _event, window, cx| {
-                        RouterState::global_mut(cx).location.pathname = "/receive/history".into();
+                        RouterState::global_mut(cx).location.pathname =
+                            routes::RECEIVE_HISTORY.into();
                         window.refresh();
                     },
                 ))
@@ -84,7 +86,14 @@ pub fn render_receive_content(
                                 .p(px(8.))
                                 .child(
                                     div()
-                                        .shadow_xs()
+                                        .shadow(vec![gpui_component::box_shadow(
+                                            px(0.),
+                                            px(0.),
+                                            px(0.),
+                                            px(1.),
+                                            cx.theme().foreground.opacity(0.10),
+                                        )])
+                                        .bg(cx.theme().foreground.opacity(0.04))
                                         .rounded_full()
                                         .w(px(44.))
                                         .h(px(44.))
@@ -426,13 +435,23 @@ fn open_quick_save_notice_dialog(mode: QuickSaveMode, window: &mut Window, cx: &
                             .child(line.clone())
                     })),
             )
-            .alert()
             .button_props(
                 DialogButtonProps::default()
                     .ok_text("确定")
                     .ok_variant(ButtonVariant::Danger),
             )
+            .footer(build_alert_dialog_footer("quick-save-notice", "确定"))
     });
+}
+
+fn build_alert_dialog_footer(id_prefix: &str, ok_text: &str) -> DialogFooter {
+    DialogFooter::new().child(
+        DialogAction::new().child(
+            Button::new(format!("{id_prefix}-ok"))
+                .label(ok_text.to_string())
+                .with_variant(ButtonVariant::Danger),
+        ),
+    )
 }
 
 /// Render a single info row with fixed-width label.
@@ -469,7 +488,14 @@ fn render_circle_button(
         .p(px(8.))
         .child(
             div()
-                .shadow_xs()
+                .shadow(vec![gpui_component::box_shadow(
+                    px(0.),
+                    px(0.),
+                    px(0.),
+                    px(1.),
+                    cx.theme().foreground.opacity(0.10),
+                )])
+                .bg(cx.theme().foreground.opacity(0.04))
                 .rounded_full()
                 .w(px(44.))
                 .h(px(44.))

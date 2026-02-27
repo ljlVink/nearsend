@@ -9,6 +9,7 @@ use crate::state::{
 use crate::ui::pages::{
     HistoryPage, HomePage, ProgressPage, ReceiveIncomingPage, SelectedFilesPage, WebSendPage,
 };
+use crate::ui::routes;
 use gpui::{div, prelude::*, Context, Entity, IntoElement, Window};
 use gpui_component::{v_flex, ActiveTheme as _, Root};
 use gpui_router::RouterState;
@@ -97,11 +98,11 @@ impl gpui::Render for AppRoot {
 
         let pathname = RouterState::global(cx).location.pathname.clone();
         let content = match pathname.as_ref() {
-            "/receive/history" => self.history_entity.clone().into_any_element(),
-            "/receive/incoming" => self.receive_incoming_entity.clone().into_any_element(),
-            "/transfer/progress" => self.progress_entity.clone().into_any_element(),
-            "/send/files" => self.selected_files_entity.clone().into_any_element(),
-            "/send/link" => self.web_send_entity.clone().into_any_element(),
+            routes::RECEIVE_HISTORY => self.history_entity.clone().into_any_element(),
+            routes::RECEIVE_INCOMING => self.receive_incoming_entity.clone().into_any_element(),
+            routes::TRANSFER_PROGRESS => self.progress_entity.clone().into_any_element(),
+            routes::SEND_FILES => self.selected_files_entity.clone().into_any_element(),
+            routes::SEND_LINK => self.web_send_entity.clone().into_any_element(),
             _ => self.home_entity.clone().into_any_element(),
         };
 

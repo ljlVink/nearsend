@@ -58,7 +58,7 @@ impl gpui::RenderOnce for Logo {
         let spinning = self.spinning;
         let duration = Duration::from_secs(self.duration_secs.max(1) as u64);
         // gpui::svg 只有在存在 text_color 时才会触发 paint_svg。
-        // 使用草绿色与 logo.svg 保持一致。
+        // 品牌 logo 保留自定义资源并沿用主视觉绿色。
         let svg_color = hsla(113.0 / 360.0, 0.42, 0.44, 1.0);
 
         let logo = if spinning {

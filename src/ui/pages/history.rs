@@ -5,12 +5,14 @@ use crate::state::{
     receive_inbox_state::{ReceiveInboxState, ReceiveItem, ReceiveSession},
     transfer_state::TransferDirection,
 };
+use crate::ui::routes;
 use crate::ui::theme::spacing;
 use chrono::{Datelike, Local, TimeZone as _, Timelike};
 use gpui::{div, prelude::*, px, Context, Entity, Window};
 use gpui_component::scroll::ScrollableElement as _;
 use gpui_component::{
     button::{Button, ButtonCustomVariant, ButtonVariants as _},
+    dialog::{DialogAction, DialogClose, DialogFooter},
     h_flex,
     popover::Popover,
     v_flex, ActiveTheme as _, Anchor, Icon, Sizable as _, Size, StyledExt as _, WindowExt as _,
@@ -80,7 +82,8 @@ impl gpui::Render for HistoryPage {
                                     .with_size(Size::Large),
                             )
                             .on_click(cx.listener(|_this, _event, window, cx| {
-                                RouterState::global_mut(cx).location.pathname = "/".into();
+                                RouterState::global_mut(cx).location.pathname =
+                                    routes::HOME.into();
                                 window.refresh();
                             })),
                     )
@@ -442,12 +445,17 @@ impl HistoryPage {
                 .overlay(true)
                 .w(px(340.))
                 .child(div().w_full().text_sm().child("确定删除所有历史记录吗？"))
-                .confirm()
                 .button_props(
                     gpui_component::dialog::DialogButtonProps::default()
                         .ok_text("删除")
+                        .show_cancel(true)
                         .cancel_text("取消"),
                 )
+                .footer(build_confirm_dialog_footer(
+                    "history-clear",
+                    "删除",
+                    "取消",
+                ))
                 .on_ok(move |_event, _window, cx| {
                     if let Some(ref state) = history_state {
                         state.update(cx, |s, _cx| s.clear());
@@ -529,7 +537,7 @@ fn open_history_entry(
                 selected_file_ids: Vec::new(),
             });
         });
-        RouterState::global_mut(cx).location.pathname = "/receive/incoming".into();
+        RouterState::global_mut(cx).location.pathname = routes::RECEIVE_INCOMING.into();
         window.refresh();
         return;
     }
@@ -612,7 +620,7 @@ fn open_entry_info_dialog(
                     })
                     .child(div().text_sm().child(format!("路径: {}", file_path))),
             )
-            .alert()
+            .footer(build_alert_dialog_footer("history-info", "关闭"))
             .button_props(gpui_component::dialog::DialogButtonProps::default().ok_text("关闭"))
     });
 }
@@ -625,9 +633,29 @@ fn open_notice_dialog(message: &str, window: &mut Window, cx: &mut gpui::App) {
             .overlay(true)
             .w(px(320.))
             .child(div().w_full().text_sm().child(msg.clone()))
-            .alert()
+            .footer(build_alert_dialog_footer("history-notice", "确定"))
             .button_props(gpui_component::dialog::DialogButtonProps::default().ok_text("确定"))
     });
+}
+
+fn build_confirm_dialog_footer(id_prefix: &str, ok_text: &str, cancel_text: &str) -> DialogFooter {
+    DialogFooter::new()
+        .child(
+            DialogClose::new().child(
+                Button::new(format!("{id_prefix}-cancel")).label(cancel_text.to_string()),
+            ),
+        )
+        .child(
+            DialogAction::new()
+                .child(Button::new(format!("{id_prefix}-ok")).label(ok_text.to_string()).primary()),
+        )
+}
+
+fn build_alert_dialog_footer(id_prefix: &str, ok_text: &str) -> DialogFooter {
+    DialogFooter::new().child(
+        DialogAction::new()
+            .child(Button::new(format!("{id_prefix}-ok")).label(ok_text.to_string()).primary()),
+    )
 }
 
 impl Default for HistoryPage {

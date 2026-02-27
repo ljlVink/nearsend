@@ -96,7 +96,7 @@ pub fn openharmony_app(app: OpenHarmonyApp) {
                             history_state,
                         )
                     });
-                    cx.new(|cx| Root::new(view, window, cx))
+                    cx.new(|cx| Root::new(view, window, cx).window_shadow_size(px(0.)))
                 },
             )
             .unwrap();

@@ -1,11 +1,13 @@
 use crate::core::share_links::SharedEntry;
 use crate::ui::pages::HomePage;
+use crate::ui::routes;
 use gpui::{div, hsla, prelude::*, px, Context, Entity, Window};
 use gpui_component::input::{Input, InputState};
 use gpui_component::notification::Notification;
 use gpui_component::scroll::ScrollableElement as _;
 use gpui_component::{
     button::{Button, ButtonVariants as _},
+    dialog::{DialogAction, DialogClose, DialogFooter},
     h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _, Size, StyledExt as _, WindowExt as _,
 };
 use gpui_router::RouterState;
@@ -183,12 +185,17 @@ impl WebSendPage {
                         .w_full()
                         .child(Input::new(&input).appearance(true).large()),
                 )
-                .confirm()
                 .button_props(
                     gpui_component::dialog::DialogButtonProps::default()
                         .ok_text("保存")
+                        .show_cancel(true)
                         .cancel_text("取消"),
                 )
+                .footer(build_confirm_dialog_footer(
+                    "web-send-pin",
+                    "保存",
+                    "取消",
+                ))
                 .on_ok(move |_event, window, cx| {
                     let pin = input_for_ok.read(cx).value().trim().to_string();
                     if pin.is_empty() {
@@ -221,7 +228,7 @@ impl WebSendPage {
                 .overlay(true)
                 .w(px(320.))
                 .child(div().w_full().text_sm().child(text.clone()))
-                .alert()
+                .footer(build_alert_dialog_footer("web-send-notice", "确定"))
                 .button_props(gpui_component::dialog::DialogButtonProps::default().ok_text("确定"))
         });
     }
@@ -388,10 +395,30 @@ impl WebSendPage {
                             )
                         }),
                 )
-                .alert()
+                .footer(build_alert_dialog_footer("web-send-qr", "关闭"))
                 .button_props(gpui_component::dialog::DialogButtonProps::default().ok_text("关闭"))
         });
     }
+}
+
+fn build_confirm_dialog_footer(id_prefix: &str, ok_text: &str, cancel_text: &str) -> DialogFooter {
+    DialogFooter::new()
+        .child(
+            DialogClose::new().child(
+                Button::new(format!("{id_prefix}-cancel")).label(cancel_text.to_string()),
+            ),
+        )
+        .child(
+            DialogAction::new()
+                .child(Button::new(format!("{id_prefix}-ok")).label(ok_text.to_string()).primary()),
+        )
+}
+
+fn build_alert_dialog_footer(id_prefix: &str, ok_text: &str) -> DialogFooter {
+    DialogFooter::new().child(
+        DialogAction::new()
+            .child(Button::new(format!("{id_prefix}-ok")).label(ok_text.to_string()).primary()),
+    )
 }
 
 impl gpui::Render for WebSendPage {
@@ -422,7 +449,8 @@ impl gpui::Render for WebSendPage {
                             .ghost()
                             .child(Icon::default().path("icons/arrow-left.svg").with_size(Size::Small))
                             .on_click(cx.listener(|_this, _event, window, cx| {
-                                RouterState::global_mut(cx).location.pathname = "/".into();
+                                RouterState::global_mut(cx).location.pathname =
+                                    routes::HOME.into();
                                 window.refresh();
                             })),
                     )

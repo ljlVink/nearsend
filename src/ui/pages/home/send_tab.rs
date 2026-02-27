@@ -5,6 +5,7 @@ use crate::ui::components::{
     device_card::DeviceCard, device_placeholder::DevicePlaceholder,
     opacity_slideshow::OpacitySlideshow, rotating_widget::RotatingWidget,
 };
+use crate::ui::routes;
 use crate::ui::theme::spacing;
 use crate::ui::utils::format_file_size;
 use gpui::{div, prelude::*, px, AnyElement, Context, ScrollHandle, Window};
@@ -89,7 +90,14 @@ fn render_action_button(
         .p(px(4.))
         .child(
             div()
-                .shadow_xs()
+                .shadow(vec![gpui_component::box_shadow(
+                    px(0.),
+                    px(0.),
+                    px(0.),
+                    px(1.),
+                    cx.theme().foreground.opacity(0.10),
+                )])
+                .bg(cx.theme().foreground.opacity(0.04))
                 .rounded_full()
                 .w(px(38.))
                 .h(px(38.))
@@ -214,7 +222,7 @@ pub fn render_send_content(
                                             ))
                                             .child(render_content_type_button(
                                                 "content-clipboard",
-                                                "icons/external-link.svg",
+                                                "icons/copy.svg",
                                                 "剪贴板",
                                                 cx,
                                                 |this, window, cx| {
@@ -267,7 +275,7 @@ pub fn render_send_content(
                                                         }))
                                                         .child(
                                                             Icon::default()
-                                                                .path("icons/close.svg")
+                                                                .path("icons/x.svg")
                                                                 .with_size(gpui_component::Size::Small),
                                                         ),
                                                 ),
@@ -341,9 +349,11 @@ pub fn render_send_content(
                                                     Button::new("edit")
                                                         .ghost()
                                                         .on_click(cx.listener(|_this, _event, window, cx| {
-                                                            gpui_router::RouterState::global_mut(cx)
-                                                                .location
-                                                                .pathname = "/send/files".into();
+                                                            gpui_router::RouterState::global_mut(
+                                                                cx,
+                                                            )
+                                                            .location
+                                                            .pathname = routes::SEND_FILES.into();
                                                             window.refresh();
                                                         }))
                                                         .child("编辑"),
@@ -452,7 +462,14 @@ pub fn render_send_content(
                                                             .p(px(6.))
                                                             .child(
                                                                 div()
-                                                                    .shadow_xs()
+                                                                    .shadow(vec![gpui_component::box_shadow(
+                                                                        px(0.),
+                                                                        px(0.),
+                                                                        px(0.),
+                                                                        px(1.),
+                                                                        cx.theme().foreground.opacity(0.10),
+                                                                    )])
+                                                                    .bg(cx.theme().foreground.opacity(0.04))
                                                                     .rounded_full()
                                                                     .w(px(38.))
                                                                     .h(px(38.))
@@ -498,8 +515,11 @@ pub fn render_send_content(
                                                                                     return;
                                                                                 }
                                                                                 this.apply_send_mode_current(super::SendMode::Link);
-                                                                                gpui_router::RouterState::global_mut(cx).location.pathname =
-                                                                                    "/send/link".into();
+                                                                                gpui_router::RouterState::global_mut(cx)
+                                                                                    .location
+                                                                                    .pathname =
+                                                                                    routes::SEND_LINK
+                                                                                        .into();
                                                                                 window.refresh();
                                                                             });
                                                                         })
