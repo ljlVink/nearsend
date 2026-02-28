@@ -22,6 +22,7 @@ struct CachedQr {
 }
 
 pub struct WebSendPage {
+    pub root: Option<Entity<crate::app::AppRoot>>,
     home_entity: Entity<HomePage>,
     share_links: Vec<String>,
     share_id: Option<String>,
@@ -30,8 +31,9 @@ pub struct WebSendPage {
 }
 
 impl WebSendPage {
-    pub fn new(home_entity: Entity<HomePage>) -> Self {
+    pub fn new(root: Entity<crate::app::AppRoot>, home_entity: Entity<HomePage>) -> Self {
         Self {
+            root: Some(root),
             home_entity,
             share_links: Vec::new(),
             share_id: None,
@@ -191,11 +193,7 @@ impl WebSendPage {
                         .show_cancel(true)
                         .cancel_text("取消"),
                 )
-                .footer(build_confirm_dialog_footer(
-                    "web-send-pin",
-                    "保存",
-                    "取消",
-                ))
+                .footer(build_confirm_dialog_footer("web-send-pin", "保存", "取消"))
                 .on_ok(move |_event, window, cx| {
                     let pin = input_for_ok.read(cx).value().trim().to_string();
                     if pin.is_empty() {
@@ -404,20 +402,25 @@ impl WebSendPage {
 fn build_confirm_dialog_footer(id_prefix: &str, ok_text: &str, cancel_text: &str) -> DialogFooter {
     DialogFooter::new()
         .child(
-            DialogClose::new().child(
-                Button::new(format!("{id_prefix}-cancel")).label(cancel_text.to_string()),
-            ),
+            DialogClose::new()
+                .child(Button::new(format!("{id_prefix}-cancel")).label(cancel_text.to_string())),
         )
         .child(
-            DialogAction::new()
-                .child(Button::new(format!("{id_prefix}-ok")).label(ok_text.to_string()).primary()),
+            DialogAction::new().child(
+                Button::new(format!("{id_prefix}-ok"))
+                    .label(ok_text.to_string())
+                    .primary(),
+            ),
         )
 }
 
 fn build_alert_dialog_footer(id_prefix: &str, ok_text: &str) -> DialogFooter {
     DialogFooter::new().child(
-        DialogAction::new()
-            .child(Button::new(format!("{id_prefix}-ok")).label(ok_text.to_string()).primary()),
+        DialogAction::new().child(
+            Button::new(format!("{id_prefix}-ok"))
+                .label(ok_text.to_string())
+                .primary(),
+        ),
     )
 }
 
@@ -448,9 +451,23 @@ impl gpui::Render for WebSendPage {
                         Button::new("web-send-back")
                             .ghost()
                             .child(Icon::default().path("icons/arrow-left.svg").with_size(Size::Small))
-                            .on_click(cx.listener(|_this, _event, window, cx| {
-                                RouterState::global_mut(cx).location.pathname =
-                                    routes::HOME.into();
+                            .on_click(cx.listener(|this, _event, window, cx| {
+                                if let Some(root) = &this.root {
+                                    let _ = root.update(cx, |this, cx| {
+                                        this.go_back_or_navigate(routes::HOME, cx);
+                                    });
+                                } else {
+                                    if let Some(entry) =
+                                        crate::ui::router_history::RouterHistoryState::global_mut(cx)
+                                            .history
+                                            .go_back()
+                                    {
+                                        RouterState::global_mut(cx).location.pathname = entry.pathname;
+                                    } else {
+                                        RouterState::global_mut(cx).location.pathname =
+                                            routes::HOME.into();
+                                    }
+                                }
                                 window.refresh();
                             })),
                     )

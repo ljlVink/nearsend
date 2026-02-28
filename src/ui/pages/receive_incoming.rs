@@ -14,13 +14,19 @@ use std::collections::HashSet;
 use std::time::Duration;
 
 pub struct ReceiveIncomingPage {
+    pub root: Option<Entity<crate::app::AppRoot>>,
     app_state: Entity<AppState>,
     inbox_state: Entity<ReceiveInboxState>,
 }
 
 impl ReceiveIncomingPage {
-    pub fn new(app_state: Entity<AppState>, inbox_state: Entity<ReceiveInboxState>) -> Self {
+    pub fn new(
+        root: Entity<crate::app::AppRoot>,
+        app_state: Entity<AppState>,
+        inbox_state: Entity<ReceiveInboxState>,
+    ) -> Self {
         Self {
+            root: Some(root),
             app_state,
             inbox_state,
         }
@@ -385,8 +391,23 @@ impl gpui::Render for ReceiveIncomingPage {
                                         crate::core::receive_events::IncomingTransferDecision::Decline,
                                     );
                                     this.inbox_state.update(cx, |s, _| s.clear());
-                                    RouterState::global_mut(cx).location.pathname =
-                                        routes::HOME.into();
+                                    if let Some(root) = &this.root {
+                                        let _ = root.update(cx, |this, cx| {
+                                            this.go_back_or_navigate(routes::HOME, cx);
+                                        });
+                                    } else {
+                                        if let Some(entry) =
+                                            crate::ui::router_history::RouterHistoryState::global_mut(cx)
+                                                .history
+                                                .go_back()
+                                        {
+                                            RouterState::global_mut(cx).location.pathname =
+                                                entry.pathname;
+                                        } else {
+                                            RouterState::global_mut(cx).location.pathname =
+                                                routes::HOME.into();
+                                        }
+                                    }
                                     window.refresh();
                                 })),
                         )
@@ -442,7 +463,21 @@ impl gpui::Render for ReceiveIncomingPage {
                                 }
                             }
                             this.inbox_state.update(cx, |s, _| s.clear());
-                            RouterState::global_mut(cx).location.pathname = routes::HOME.into();
+                            if let Some(root) = &this.root {
+                                let _ = root.update(cx, |this, cx| {
+                                    this.go_back_or_navigate(routes::HOME, cx);
+                                });
+                            } else {
+                                if let Some(entry) =
+                                    crate::ui::router_history::RouterHistoryState::global_mut(cx)
+                                        .history
+                                        .go_back()
+                                {
+                                    RouterState::global_mut(cx).location.pathname = entry.pathname;
+                                } else {
+                                    RouterState::global_mut(cx).location.pathname = routes::HOME.into();
+                                }
+                            }
                             window.refresh();
                         })),
                 ),

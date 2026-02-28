@@ -5,8 +5,9 @@ use crate::state::app_state::AppState;
 use crate::state::send_selection_state::SendSelectionState;
 use crate::ui::routes;
 use crate::ui::theme::spacing;
-use gpui::{div, prelude::*, px, Context, Entity, Window};
+use gpui::{div, hsla, prelude::*, px, Context, Entity, Window};
 use gpui_component::input::{Input, InputState};
+use gpui_component::notification::Notification;
 use gpui_component::scroll::ScrollableElement as _;
 use gpui_component::{
     button::{Button, ButtonCustomVariant, ButtonVariants as _},
@@ -17,6 +18,7 @@ use gpui_router::RouterState;
 
 enum ClipboardPickOutcome {
     Success(String),
+    Empty,
     PermissionDenied,
     ReadFailed,
 }
@@ -29,16 +31,19 @@ enum PathPickOutcome {
 
 /// Selected files page state.
 pub struct SelectedFilesPage {
+    pub root: Option<Entity<crate::app::AppRoot>>,
     app_state: Entity<AppState>,
     send_selection_state: Entity<SendSelectionState>,
 }
 
 impl SelectedFilesPage {
     pub fn new(
+        root: Entity<crate::app::AppRoot>,
         app_state: Entity<AppState>,
         send_selection_state: Entity<SendSelectionState>,
     ) -> Self {
         Self {
+            root: Some(root),
             app_state,
             send_selection_state,
         }
@@ -55,6 +60,45 @@ impl SelectedFilesPage {
                 .footer(build_alert_dialog_footer("selected-files-notice", "确定"))
                 .button_props(gpui_component::dialog::DialogButtonProps::default().ok_text("确定"))
         });
+    }
+
+    fn show_clipboard_empty_toast(&self, window: &mut Window, cx: &mut Context<Self>) {
+        struct ClipboardEmptyToast;
+        window.push_notification(
+            Notification::new()
+                .id::<ClipboardEmptyToast>()
+                .autohide(false)
+                .content(|_, _, _| {
+                    div()
+                        .w_full()
+                        .text_xs()
+                        .text_center()
+                        .child("当前剪贴板无内容")
+                        .into_any_element()
+                })
+                .w(px(158.))
+                .py(px(4.))
+                .px(px(10.))
+                .mb(px(22.))
+                .rounded_full()
+                .shadow_none()
+                .border_color(hsla(0.0, 0.0, 0.0, 0.0))
+                .bg(hsla(0.0, 0.0, 0.12, 0.92))
+                .text_color(hsla(0.0, 0.0, 1.0, 0.96)),
+            cx,
+        );
+        let window_handle = window.window_handle();
+        let tokio_handle = self.app_state.read(cx).tokio_handle.clone();
+        let dismiss = tokio_handle.spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+        });
+        cx.spawn(async move |_this, cx| {
+            let _ = dismiss.await;
+            let _ = window_handle.update(cx, |_, window, cx| {
+                window.remove_notification::<ClipboardEmptyToast>(cx);
+            });
+        })
+        .detach();
     }
 
     fn open_text_edit_dialog(
@@ -275,7 +319,7 @@ impl SelectedFilesPage {
                 }
             };
             if text.is_empty() {
-                return ClipboardPickOutcome::Success(String::new());
+                return ClipboardPickOutcome::Empty;
             }
 
             ClipboardPickOutcome::Success(text)
@@ -298,6 +342,13 @@ impl SelectedFilesPage {
                     let _ = page_entity.update(cx, |this, cx| {
                         this.send_selection_state.update(cx, |state, _| {
                             state.add_text(text.clone());
+                        });
+                    });
+                }
+                ClipboardPickOutcome::Empty => {
+                    let _ = window_handle.update(cx, |_, window, cx| {
+                        let _ = page_entity.update(cx, |this, cx| {
+                            this.show_clipboard_empty_toast(window, cx);
                         });
                     });
                 }
@@ -423,9 +474,26 @@ impl gpui::Render for SelectedFilesPage {
                     .child(
                         Button::new("files-back")
                             .ghost()
-                            .on_click(cx.listener(|_this, _event, window, cx| {
-                                RouterState::global_mut(cx).location.pathname =
-                                    routes::HOME.into();
+                            .on_click(cx.listener(|this, _event, window, cx| {
+                                if let Some(root) = &this.root {
+                                    let _ = root.update(cx, |this, cx| {
+                                        this.go_back_or_navigate(routes::HOME, cx);
+                                    });
+                                } else {
+                                    if let Some(entry) =
+                                        crate::ui::router_history::RouterHistoryState::global_mut(
+                                            cx,
+                                        )
+                                        .history
+                                        .go_back()
+                                    {
+                                        RouterState::global_mut(cx).location.pathname =
+                                            entry.pathname;
+                                    } else {
+                                        RouterState::global_mut(cx).location.pathname =
+                                            routes::HOME.into();
+                                    }
+                                }
                                 window.refresh();
                             }))
                             .child(
@@ -623,20 +691,25 @@ impl gpui::Render for SelectedFilesPage {
 fn build_confirm_dialog_footer(id_prefix: &str, ok_text: &str, cancel_text: &str) -> DialogFooter {
     DialogFooter::new()
         .child(
-            DialogClose::new().child(
-                Button::new(format!("{id_prefix}-cancel")).label(cancel_text.to_string()),
-            ),
+            DialogClose::new()
+                .child(Button::new(format!("{id_prefix}-cancel")).label(cancel_text.to_string())),
         )
         .child(
-            DialogAction::new()
-                .child(Button::new(format!("{id_prefix}-ok")).label(ok_text.to_string()).primary()),
+            DialogAction::new().child(
+                Button::new(format!("{id_prefix}-ok"))
+                    .label(ok_text.to_string())
+                    .primary(),
+            ),
         )
 }
 
 fn build_alert_dialog_footer(id_prefix: &str, ok_text: &str) -> DialogFooter {
     DialogFooter::new().child(
-        DialogAction::new()
-            .child(Button::new(format!("{id_prefix}-ok")).label(ok_text.to_string()).primary()),
+        DialogAction::new().child(
+            Button::new(format!("{id_prefix}-ok"))
+                .label(ok_text.to_string())
+                .primary(),
+        ),
     )
 }
 

@@ -1,4 +1,6 @@
-use gpui::{hsla, px, size, App, AppContext, Application, Bounds, WindowBounds, WindowOptions};
+use gpui::{
+    hsla, px, size, App, AppContext, Application, Bounds, Global, WindowBounds, WindowOptions,
+};
 use gpui_component::theme::Theme;
 use gpui_component::Anchor;
 use gpui_component::Root;
@@ -15,6 +17,13 @@ mod platform;
 mod state;
 mod ui;
 
+use ui::router_history::RouterHistoryState;
+
+/// Global OpenHarmony app wrapper for accessing back press functionality
+pub struct GlobalOpenHarmonyApp(OpenHarmonyApp);
+
+impl Global for GlobalOpenHarmonyApp {}
+
 #[openharmony_ability_derive::ability]
 pub fn openharmony_app(app: OpenHarmonyApp) {
     ohos_hilog_binding::log::init_once(Config::default().with_max_level(LevelFilter::Debug));
@@ -27,8 +36,11 @@ pub fn openharmony_app(app: OpenHarmonyApp) {
         .with_assets(assets::NearSendAssets(ComponentAssets))
         .with_ohos_app(app.clone())
         .run(move |cx: &mut App| {
+            cx.set_global(GlobalOpenHarmonyApp(app.clone()));
+
             gpui_component::init(cx);
             gpui_router::init(cx);
+            RouterHistoryState::init(cx, "/");
             Theme::global_mut(cx).overlay = hsla(0.0, 0.0, 0.0, 0.58);
             Theme::global_mut(cx).notification.placement = Anchor::BottomCenter;
             Theme::global_mut(cx).notification.margins.bottom = px(56.);

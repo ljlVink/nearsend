@@ -21,6 +21,7 @@ use gpui_router::RouterState;
 
 /// History page: back bar + title + history list.
 pub struct HistoryPage {
+    pub root: Option<Entity<crate::app::AppRoot>>,
     history_state: Option<Entity<HistoryState>>,
     receive_inbox_state: Option<Entity<ReceiveInboxState>>,
     open_menu_entry: Option<String>,
@@ -29,10 +30,16 @@ pub struct HistoryPage {
 impl HistoryPage {
     pub fn new() -> Self {
         Self {
+            root: None,
             history_state: None,
             receive_inbox_state: None,
             open_menu_entry: None,
         }
+    }
+
+    pub fn with_root(mut self, root: Entity<crate::app::AppRoot>) -> Self {
+        self.root = Some(root);
+        self
     }
 
     pub fn with_history_state(mut self, state: Entity<HistoryState>) -> Self {
@@ -57,6 +64,7 @@ impl gpui::Render for HistoryPage {
         let page_entity = cx.entity();
         let history_state = self.history_state.clone();
         let receive_inbox_state = self.receive_inbox_state.clone();
+        let root = self.root.clone();
 
         v_flex()
             .size_full()
@@ -81,9 +89,24 @@ impl gpui::Render for HistoryPage {
                                     .path("icons/arrow-left.svg")
                                     .with_size(Size::Large),
                             )
-                            .on_click(cx.listener(|_this, _event, window, cx| {
-                                RouterState::global_mut(cx).location.pathname =
-                                    routes::HOME.into();
+                            .on_click(cx.listener(|this, _event, window, cx| {
+                                if let Some(root) = &this.root {
+                                    let _ = root.update(cx, |this, cx| {
+                                        this.go_back_or_navigate(routes::HOME, cx);
+                                    });
+                                } else {
+                                    // Fallback if no root
+                                    if let Some(entry) =
+                                        crate::ui::router_history::RouterHistoryState::global_mut(cx)
+                                            .history
+                                            .go_back()
+                                    {
+                                        RouterState::global_mut(cx).location.pathname = entry.pathname;
+                                    } else {
+                                        RouterState::global_mut(cx).location.pathname =
+                                            routes::HOME.into();
+                                    }
+                                }
                                 window.refresh();
                             })),
                     )
@@ -196,6 +219,8 @@ impl gpui::Render for HistoryPage {
                                 let entry_for_row_open = entry.clone();
                                 let receive_inbox_for_row_open = receive_inbox_state.clone();
                                 let receive_inbox_for_menu_open = receive_inbox_state.clone();
+                                let root_for_row_open = root.clone();
+                                let root_for_menu_open = root.clone();
                                 let entry_id_open_change = entry_id.clone();
                                 let entry_id_for_open = entry_id.clone();
                                 let entry_id_for_delete = entry_id.clone();
@@ -215,6 +240,7 @@ impl gpui::Render for HistoryPage {
                                                 open_history_entry(
                                                     &entry_for_row_open,
                                                     receive_inbox_for_row_open.as_ref(),
+                                                    root_for_row_open.as_ref(),
                                                     window,
                                                     cx,
                                                 );
@@ -366,6 +392,8 @@ impl gpui::Render for HistoryPage {
                                                             ),
                                                         )
                                                         .when(entry_openable, |this| {
+                                                                let root_for_menu_open =
+                                                                    root_for_menu_open.clone();
                                                                 this.child(
                                                                     Button::new(format!(
                                                                         "history-entry-open-{}",
@@ -385,6 +413,9 @@ impl gpui::Render for HistoryPage {
                                                                         let receive_inbox_for_menu_open =
                                                                             receive_inbox_for_menu_open
                                                                                 .clone();
+                                                                        let root_for_menu_open =
+                                                                            root_for_menu_open
+                                                                                .clone();
                                                                         move |_event, window, cx| {
                                                                             page_for_open_action.update(
                                                                             cx,
@@ -396,6 +427,7 @@ impl gpui::Render for HistoryPage {
                                                                             open_history_entry(
                                                                                 &entry_for_open,
                                                                                 receive_inbox_for_menu_open.as_ref(),
+                                                                                root_for_menu_open.as_ref(),
                                                                                 window,
                                                                                 cx,
                                                                             );
@@ -451,11 +483,7 @@ impl HistoryPage {
                         .show_cancel(true)
                         .cancel_text("取消"),
                 )
-                .footer(build_confirm_dialog_footer(
-                    "history-clear",
-                    "删除",
-                    "取消",
-                ))
+                .footer(build_confirm_dialog_footer("history-clear", "删除", "取消"))
                 .on_ok(move |_event, _window, cx| {
                     if let Some(ref state) = history_state {
                         state.update(cx, |s, _cx| s.clear());
@@ -499,6 +527,7 @@ fn resolve_text_content(entry: &HistoryEntry) -> Option<String> {
 fn open_history_entry(
     entry: &HistoryEntry,
     receive_inbox_state: Option<&Entity<ReceiveInboxState>>,
+    root: Option<&Entity<crate::app::AppRoot>>,
     window: &mut Window,
     cx: &mut gpui::App,
 ) {
@@ -537,7 +566,13 @@ fn open_history_entry(
                 selected_file_ids: Vec::new(),
             });
         });
-        RouterState::global_mut(cx).location.pathname = routes::RECEIVE_INCOMING.into();
+        if let Some(root) = root {
+            let _ = root.update(cx, |root, cx| {
+                root.navigate_to(routes::RECEIVE_INCOMING, cx);
+            });
+        } else {
+            RouterState::global_mut(cx).location.pathname = routes::RECEIVE_INCOMING.into();
+        }
         window.refresh();
         return;
     }
@@ -641,20 +676,25 @@ fn open_notice_dialog(message: &str, window: &mut Window, cx: &mut gpui::App) {
 fn build_confirm_dialog_footer(id_prefix: &str, ok_text: &str, cancel_text: &str) -> DialogFooter {
     DialogFooter::new()
         .child(
-            DialogClose::new().child(
-                Button::new(format!("{id_prefix}-cancel")).label(cancel_text.to_string()),
-            ),
+            DialogClose::new()
+                .child(Button::new(format!("{id_prefix}-cancel")).label(cancel_text.to_string())),
         )
         .child(
-            DialogAction::new()
-                .child(Button::new(format!("{id_prefix}-ok")).label(ok_text.to_string()).primary()),
+            DialogAction::new().child(
+                Button::new(format!("{id_prefix}-ok"))
+                    .label(ok_text.to_string())
+                    .primary(),
+            ),
         )
 }
 
 fn build_alert_dialog_footer(id_prefix: &str, ok_text: &str) -> DialogFooter {
     DialogFooter::new().child(
-        DialogAction::new()
-            .child(Button::new(format!("{id_prefix}-ok")).label(ok_text.to_string()).primary()),
+        DialogAction::new().child(
+            Button::new(format!("{id_prefix}-ok"))
+                .label(ok_text.to_string())
+                .primary(),
+        ),
     )
 }
 

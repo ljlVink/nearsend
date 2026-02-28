@@ -71,7 +71,7 @@ impl HomePage {
         self.send_state.session_status = SendSessionStatus::Preparing;
         self.send_state.session_status_text = Some("正在准备发送...".to_string());
         if has_binary_file {
-            RouterState::global_mut(cx).location.pathname = routes::TRANSFER_PROGRESS.into();
+            self.navigate_to(routes::TRANSFER_PROGRESS, cx);
             window.refresh();
         }
 

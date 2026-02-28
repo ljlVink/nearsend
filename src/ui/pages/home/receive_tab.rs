@@ -14,7 +14,6 @@ use gpui_component::{
     popover::Popover,
     v_flex, ActiveTheme as _, Anchor, Icon, Sizable as _, Size, StyledExt as _, WindowExt as _,
 };
-use gpui_router::RouterState;
 
 pub fn render_receive_content(
     home: &mut HomePage,
@@ -55,9 +54,8 @@ pub fn render_receive_content(
                     "receive-history",
                     "icons/history.svg",
                     cx,
-                    |_this, _event, window, cx| {
-                        RouterState::global_mut(cx).location.pathname =
-                            routes::RECEIVE_HISTORY.into();
+                    |this, _event, window, cx| {
+                        this.navigate_to(routes::RECEIVE_HISTORY, cx);
                         window.refresh();
                     },
                 ))

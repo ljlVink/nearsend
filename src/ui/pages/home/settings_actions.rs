@@ -3,92 +3,6 @@
 use super::*;
 
 impl HomePage {
-    pub(super) fn init_select_states(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        // Theme select: 系统 / 浅色 / 深色
-        let theme_idx = match self.settings_state.theme_mode {
-            ThemeMode::System => 0,
-            ThemeMode::Light => 1,
-            ThemeMode::Dark => 2,
-        };
-        let theme_select = cx.new(|cx| {
-            SelectState::new(
-                vec!["系统", "浅色", "深色"],
-                Some(IndexPath::default().row(theme_idx)),
-                window,
-                cx,
-            )
-        });
-        cx.subscribe_in(
-            &theme_select,
-            window,
-            |this, _, event: &SelectEvent<Vec<&'static str>>, _win, _cx| {
-                if let SelectEvent::Confirm(Some(value)) = event {
-                    this.settings_state.theme_mode = match *value {
-                        "浅色" => ThemeMode::Light,
-                        "深色" => ThemeMode::Dark,
-                        _ => ThemeMode::System,
-                    };
-                    this.persist_settings();
-                }
-            },
-        )
-        .detach();
-        self.theme_select = Some(theme_select);
-
-        // Color select: 系统 / NearSend / OLED
-        let color_idx = match self.settings_state.color_mode {
-            ColorMode::System => 0,
-            ColorMode::LocalSend => 1,
-            ColorMode::Oled => 2,
-        };
-        let color_select = cx.new(|cx| {
-            SelectState::new(
-                vec!["系统", "NearSend", "OLED"],
-                Some(IndexPath::default().row(color_idx)),
-                window,
-                cx,
-            )
-        });
-        cx.subscribe_in(
-            &color_select,
-            window,
-            |this, _, event: &SelectEvent<Vec<&'static str>>, _win, _cx| {
-                if let SelectEvent::Confirm(Some(value)) = event {
-                    this.settings_state.color_mode = match *value {
-                        "NearSend" => ColorMode::LocalSend,
-                        "OLED" => ColorMode::Oled,
-                        _ => ColorMode::System,
-                    };
-                    this.persist_settings();
-                }
-            },
-        )
-        .detach();
-        self.color_select = Some(color_select);
-
-        // Language select
-        let language_select = cx.new(|cx| {
-            SelectState::new(
-                vec!["系统", "简体中文", "English", "日本語"],
-                Some(IndexPath::default()),
-                window,
-                cx,
-            )
-        });
-        cx.subscribe_in(
-            &language_select,
-            window,
-            |this, _, event: &SelectEvent<Vec<&'static str>>, _win, _cx| {
-                if let SelectEvent::Confirm(Some(value)) = event {
-                    this.settings_state.language = value.to_string();
-                    this.persist_settings();
-                }
-            },
-        )
-        .detach();
-        self.language_select = Some(language_select);
-    }
-
     /// Opens a dialog with a multiline text input for sending text messages.
     /// Matches LocalSend's MessageInputDialog behavior.
     pub(super) fn open_text_input_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -422,62 +336,6 @@ impl HomePage {
         self.persist_settings();
     }
 
-    pub(super) fn cycle_device_type_setting(&mut self, cx: &mut Context<Self>) {
-        let next = match normalize_device_type_label(&self.settings_state.device_type).as_str() {
-            "mobile" => "Desktop",
-            "desktop" => "Web",
-            "web" => "Server",
-            "server" => "Headless",
-            _ => "Mobile",
-        };
-        self.settings_state.device_type = next.to_string();
-        self.sync_server_config_to_runtime(cx);
-        self.persist_settings();
-    }
-
-    pub(super) fn open_device_model_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let input_state =
-            cx.new(|cx| InputState::new(window, cx).placeholder("输入设备型号（可选）"));
-        let current = self.settings_state.device_model.clone();
-        input_state.update(cx, |state, cx| {
-            state.set_value(current, window, cx);
-        });
-        let home_entity = cx.entity();
-        window.open_dialog(cx, move |dialog, _window, _cx| {
-            let input_for_ok = input_state.clone();
-            let home_for_ok = home_entity.clone();
-            dialog
-                .title("设备型号")
-                .overlay(true)
-                .w(px(340.))
-                .child(
-                    div()
-                        .w_full()
-                        .child(Input::new(&input_state).appearance(true).large()),
-                )
-                .button_props(
-                    gpui_component::dialog::DialogButtonProps::default()
-                        .ok_text("保存")
-                        .show_cancel(true)
-                        .cancel_text("取消"),
-                )
-                .footer(Self::build_confirm_dialog_footer(
-                    "device-model",
-                    "保存",
-                    "取消",
-                ))
-                .on_ok(move |_event, _window, cx| {
-                    let value = input_for_ok.read(cx).value().trim().to_string();
-                    home_for_ok.update(cx, |this, cx| {
-                        this.settings_state.device_model = value;
-                        this.sync_server_config_to_runtime(cx);
-                        this.persist_settings();
-                    });
-                    true
-                })
-        });
-    }
-
     pub(super) fn open_discovery_timeout_dialog(
         &mut self,
         window: &mut Window,
@@ -579,16 +437,6 @@ impl HomePage {
                     true
                 })
         });
-    }
-
-    pub(super) fn cycle_network_filter_mode(&mut self, cx: &mut Context<Self>) {
-        self.settings_state.network_filter_mode = match self.settings_state.network_filter_mode {
-            NetworkFilterMode::All => NetworkFilterMode::Whitelist,
-            NetworkFilterMode::Whitelist => NetworkFilterMode::Blacklist,
-            NetworkFilterMode::Blacklist => NetworkFilterMode::All,
-        };
-        self.sync_server_config_to_runtime(cx);
-        self.persist_settings();
     }
 
     pub(super) fn open_network_filters_dialog(
@@ -875,5 +723,4 @@ impl HomePage {
     pub(super) fn open_send_target_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.open_send_to_address_dialog(window, cx);
     }
-
 }

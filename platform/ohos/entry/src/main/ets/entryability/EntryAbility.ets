@@ -1,11 +1,13 @@
 import { AbilityConstant, Want, wantConstant } from "@kit.AbilityKit";
 import { picker } from "@kit.CoreFileKit";
 import pasteboard from "@ohos.pasteboard";
+import window from "@ohos.window";
 import { RustAbility } from "@ohos-rs/ability";
 import nearSend from "libnear_send.so";
 
 export default class EntryAbility extends RustAbility {
   public moduleName: string = "near_send";
+  public defaultPage: boolean = false;
 
   private async readClipboardText(): Promise<string> {
     try {
@@ -149,5 +151,11 @@ export default class EntryAbility extends RustAbility {
       registerOpenFileFn(async (uri: string) => await this.openSavedFileFromSystem(uri));
     }
     await super.onCreate(want, launchParam);
+  }
+
+  public async onWindowStageCreate(windowStage: window.WindowStage): Promise<void> {
+    const win = await windowStage.getMainWindow();
+    await super.onWindowStageCreate(windowStage);
+    await win.setUIContent("pages/Index");
   }
 }

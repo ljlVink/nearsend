@@ -3,49 +3,50 @@
 import { NodeContent } from "@kit.ArkUI";
 
 export interface ApplicationLifecycle {
-  environmentCallback: EnvironmentCallback;
-  windowStageEventCallback: WindowStageEventCallback;
-  keyboardEventCallback: KeyboardCallback;
+  environmentCallback: EnvironmentCallback
+  windowStageEventCallback: WindowStageEventCallback
+  keyboardEventCallback: KeyboardCallback
 }
 
 export interface EnvironmentCallback {
-  onConfigurationUpdated: () => void;
-  onMemoryLevel: (arg: number) => void;
+  onConfigurationUpdated: () => void
+  onMemoryLevel: (arg: number) => void
 }
 
 export interface KeyboardCallback {
-  onKeyboardHeightChange: (arg: number) => void;
+  onKeyboardHeightChange: (arg: number) => void
 }
 
 export interface WindowStageEventCallback {
-  onWindowStageCreate: () => void;
-  onWindowStageDestroy: () => void;
-  onAbilityCreate: () => void;
-  onAbilityDestroy: () => void;
-  onAbilitySaveState: () => void;
-  onAbilityRestoreState: () => void;
-  onWindowStageEvent: (arg: number) => void;
-  onWindowSizeChange: (arg: object) => void;
-  onWindowRectChange: (arg: object) => void;
+  onWindowStageCreate: () => void
+  onWindowStageDestroy: () => void
+  onAbilityCreate: () => void
+  onAbilityDestroy: () => void
+  onAbilitySaveState: () => void
+  onAbilityRestoreState: () => void
+  onWindowStageEvent: (arg: number) => void
+  onWindowSizeChange: (arg: object) => void
+  onWindowRectChange: (arg: object) => void
+  onAvoidAreaChange: (arg: object) => void
 }
 
-export declare function init(): ApplicationLifecycle;
+export declare function init(): ApplicationLifecycle
 
-export declare function registerClipboardCallbacks(
-  readClipboard: () => unknown,
-  writeClipboard: (arg: string) => unknown,
-): void;
+/**
+ * r" Get back press interceptor result
+ * r" Can be called from ArkTS page lifecycle (onBackPress)
+ * r" Returns true to intercept back press, false to pass through
+ */
+export declare function onBackPressIntercept(): boolean
 
-export declare function registerFilePickerCallbacks(
-  pickFiles: () => unknown,
-  pickFolders: () => unknown,
-  pickSaveDirectory: () => unknown,
-): void;
+export declare function registerClipboardCallbacks(readClipboard: () => unknown, writeClipboard: (arg: string) => unknown): void
 
-export declare function registerOpenFileCallback(openFile: (arg: string) => unknown): void;
+export declare function registerFilePickerCallbacks(pickFiles: () => unknown, pickFolders: () => unknown, pickSaveDirectory: () => unknown): void
 
-export declare function registerSaveFileCallback(saveFile: (arg: string) => unknown): void;
+export declare function registerOpenFileCallback(openFile: (arg: string) => unknown): void
 
-export declare function render(helper: object, slot: NodeContent): void;
+export declare function registerSaveFileCallback(saveFile: (arg: string) => unknown): void
 
-export declare function setPreferencesPath(preferencesPath: string): void;
+export declare function render(helper: object, slot: NodeContent): void
+
+export declare function setPreferencesPath(preferencesPath: string): void

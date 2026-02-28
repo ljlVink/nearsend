@@ -2,12 +2,15 @@
 
 use super::HomePage;
 use crate::ui::components::{logo::Logo, switch::Switch};
+use crate::ui::routes;
 use crate::ui::theme::spacing;
-use gpui::{div, prelude::*, px, AnyElement, Context, Window};
+use gpui::{div, prelude::*, px, AnyElement, Context, Entity, Window};
 use gpui_component::scroll::ScrollableElement as _;
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _, Size, StyledExt as _,
+    h_flex,
+    select::{Select, SelectState},
+    v_flex, ActiveTheme as _, Icon, Sizable as _, Size, StyledExt as _,
 };
 
 // ---------------------------------------------------------------------------
@@ -40,6 +43,35 @@ fn render_settings_section(
         .into_any_element()
 }
 
+/// Renders a select entry (label + in-place dropdown in a 150px container).
+fn render_select_entry(
+    label: &str,
+    select_state: &Entity<SelectState<Vec<&'static str>>>,
+    id: &str,
+    cx: &mut Context<HomePage>,
+) -> AnyElement {
+    div()
+        .pb(px(15.))
+        .child(
+            h_flex()
+                .items_center()
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(cx.theme().foreground)
+                        .flex_1()
+                        .child(label.to_string()),
+                )
+                .child(
+                    div()
+                        .id(id.to_string())
+                        .w(px(150.))
+                        .child(Select::new(select_state).w_full().with_size(Size::Medium)),
+                ),
+        )
+        .into_any_element()
+}
+
 /// Renders a boolean toggle entry (label + switch).
 fn render_boolean_entry(
     label: &str,
@@ -68,43 +100,6 @@ fn render_boolean_entry(
                             on_toggle(this, cx);
                         }))
                         .child(Switch::new(value)),
-                ),
-        )
-        .into_any_element()
-}
-
-/// Renders a button entry (label + secondary outline button in a 150px container).
-fn render_button_entry(
-    label: &str,
-    button_text: &str,
-    id: &str,
-    cx: &mut Context<HomePage>,
-    on_click: impl Fn(&mut HomePage) + 'static,
-) -> AnyElement {
-    div()
-        .pb(px(15.))
-        .child(
-            h_flex()
-                .items_center()
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(cx.theme().foreground)
-                        .flex_1()
-                        .child(label.to_string()),
-                )
-                .child(div().w(px(10.)))
-                .child(
-                    div().w(px(150.)).child(
-                        Button::new(id.to_string())
-                            .with_variant(gpui_component::button::ButtonVariant::Secondary)
-                            .outline()
-                            .w_full()
-                            .on_click(cx.listener(move |this, _ev, _win, _cx| {
-                                on_click(this);
-                            }))
-                            .child(button_text.to_string()),
-                    ),
                 ),
         )
         .into_any_element()
@@ -156,24 +151,39 @@ pub fn render_settings_content(
     _window: &mut Window,
     cx: &mut Context<HomePage>,
 ) -> AnyElement {
+    let Some(send_mode_default_select) = app.send_mode_default_select.clone() else {
+        return div()
+            .size_full()
+            .bg(cx.theme().background)
+            .into_any_element();
+    };
+    let Some(device_type_select) = app.device_type_select.clone() else {
+        return div()
+            .size_full()
+            .bg(cx.theme().background)
+            .into_any_element();
+    };
+    let Some(device_model_select) = app.device_model_select.clone() else {
+        return div()
+            .size_full()
+            .bg(cx.theme().background)
+            .into_any_element();
+    };
+    let Some(network_filter_mode_select) = app.network_filter_mode_select.clone() else {
+        return div()
+            .size_full()
+            .bg(cx.theme().background)
+            .into_any_element();
+    };
+
     let advanced = app.settings_state.advanced;
     let server_running = app.settings_state.server_running;
     let server_paused = app.settings_state.server_paused;
     let server_alias = app.settings_state.server_alias.clone();
     let server_port = app.settings_state.server_port;
-    let network_filtered = app.settings_state.network_filtered;
-    let send_mode_text =
-        HomePage::send_mode_setting_label(app.settings_state.send_mode_default).to_string();
     let share_link_auto_accept = app.settings_state.share_via_link_auto_accept;
     let quick_save = app.settings_state.quick_save;
     let quick_save_favorites = app.settings_state.quick_save_favorites;
-    let destination_text = app
-        .settings_state
-        .destination
-        .as_ref()
-        .map(|p| p.as_str())
-        .unwrap_or("系统选择");
-    let save_to_gallery = app.settings_state.save_to_gallery;
     let auto_finish = app.settings_state.auto_finish;
     let save_to_history = app.settings_state.save_to_history;
 
@@ -184,31 +194,17 @@ pub fn render_settings_content(
     } else {
         "*".repeat(app.settings_state.receive_pin.chars().count().min(12))
     };
-    let r1 = div()
-        .pb(px(15.))
-        .child(
-            h_flex()
-                .items_center()
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(cx.theme().foreground)
-                        .flex_1()
-                        .child("接收需要 PIN"),
-                )
-                .child(
-                    div()
-                        .id("toggle-require-pin")
-                        .cursor_pointer()
-                        .on_click(cx.listener(|this, _ev, _window, cx| {
-                            this.settings_state.require_pin = !this.settings_state.require_pin;
-                            this.sync_server_config_to_runtime(cx);
-                            this.persist_settings();
-                        }))
-                        .child(Switch::new(require_pin)),
-                ),
-        )
-        .into_any_element();
+    let r1 = render_boolean_entry(
+        "接收需要 PIN",
+        require_pin,
+        "toggle-require-pin",
+        cx,
+        |this, cx| {
+            this.settings_state.require_pin = !this.settings_state.require_pin;
+            this.sync_server_config_to_runtime(cx);
+            this.persist_settings();
+        },
+    );
     let r2 = render_clickable_entry(
         "接收 PIN",
         &masked_pin,
@@ -250,34 +246,6 @@ pub fn render_settings_content(
             this.persist_settings();
         },
     );
-    let destination_entry = render_clickable_entry(
-        "接收目录",
-        destination_text,
-        "destination-input",
-        cx,
-        |this, window, cx| {
-            this.pick_receive_destination(window, cx);
-        },
-    );
-    let clear_destination_entry = render_clickable_entry(
-        "重置接收目录",
-        "恢复默认",
-        "destination-clear",
-        cx,
-        |this, _window, cx| {
-            this.clear_receive_destination(cx);
-        },
-    );
-    let save_to_gallery_entry = render_boolean_entry(
-        "保存到相册",
-        save_to_gallery,
-        "toggle-save-to-gallery",
-        cx,
-        |this, _cx| {
-            this.settings_state.save_to_gallery = !this.settings_state.save_to_gallery;
-            this.persist_settings();
-        },
-    );
     let auto_finish_entry = render_boolean_entry(
         "自动完成",
         auto_finish,
@@ -302,9 +270,6 @@ pub fn render_settings_content(
         r1,
         quick_save_entry,
         quick_save_fav_entry,
-        destination_entry,
-        clear_destination_entry,
-        save_to_gallery_entry,
         auto_finish_entry,
         save_to_history_entry,
     ];
@@ -314,14 +279,11 @@ pub fn render_settings_content(
     let receive = render_settings_section("接收", cx, receive_children);
 
     // -- Send section (align with LocalSend advanced settings) --
-    let send_mode = render_clickable_entry(
+    let send_mode = render_select_entry(
         "默认发送模式",
-        &send_mode_text,
-        "send-mode-default",
+        &send_mode_default_select,
+        "select-send-mode-default",
         cx,
-        |this, window, cx| {
-            this.open_send_mode_dialog(window, cx);
-        },
     );
     let share_link = render_boolean_entry(
         "分享链接自动接受",
@@ -439,35 +401,22 @@ pub fn render_settings_content(
     );
     let mut network_children: Vec<AnyElement> = vec![server_controls, n1, n2];
     if advanced {
-        let device_type_entry = render_clickable_entry(
-            "设备类型",
-            &app.settings_state.device_type,
-            "device-type",
+        let device_type_entry =
+            render_select_entry("设备类型", &device_type_select, "select-device-type", cx);
+        let device_model_entry =
+            render_select_entry("设备型号", &device_model_select, "select-device-model", cx);
+        let n3 = render_boolean_entry(
+            "加密",
+            app.settings_state.encryption,
+            "toggle-encryption",
             cx,
-            |this, _window, cx| {
-                this.cycle_device_type_setting(cx);
+            |this, cx| {
+                this.settings_state.encryption = !this.settings_state.encryption;
+                this.sync_server_config_to_runtime(cx);
+                this.restart_local_server_with_current_config(cx);
+                this.persist_settings();
             },
         );
-        let device_model_entry = render_clickable_entry(
-            "设备型号",
-            if app.settings_state.device_model.trim().is_empty() {
-                "自动"
-            } else {
-                app.settings_state.device_model.as_str()
-            },
-            "device-model",
-            cx,
-            |this, window, cx| {
-                this.open_device_model_dialog(window, cx);
-            },
-        );
-        let encryption = app.settings_state.encryption;
-        let n3 = render_boolean_entry("加密", encryption, "toggle-encryption", cx, |this, cx| {
-            this.settings_state.encryption = !this.settings_state.encryption;
-            this.sync_server_config_to_runtime(cx);
-            this.restart_local_server_with_current_config(cx);
-            this.persist_settings();
-        });
         let discovery_timeout_entry = render_clickable_entry(
             "发现超时(ms)",
             &app.settings_state.discovery_timeout.to_string(),
@@ -486,19 +435,11 @@ pub fn render_settings_content(
                 this.open_multicast_group_dialog(window, cx);
             },
         );
-        let net_label = if network_filtered {
-            "已过滤"
-        } else {
-            "全部"
-        };
-        let n4 = render_clickable_entry(
+        let n4 = render_select_entry(
             "网络接口模式",
-            net_label,
-            "network-mode",
+            &network_filter_mode_select,
+            "select-network-mode",
             cx,
-            |this, _window, cx| {
-                this.cycle_network_filter_mode(cx);
-            },
         );
         let n5 = render_clickable_entry(
             "网络接口规则",
@@ -520,15 +461,21 @@ pub fn render_settings_content(
     let network = render_settings_section("网络", cx, network_children);
 
     // -- Other section children --
-    let o1 = render_button_entry("关于", "打开", "about", cx, |_this| {
-        log::info!("About clicked");
+    let o1 = render_clickable_entry("关于", "打开", "about", cx, |this, _window, cx| {
+        this.navigate_to(routes::SETTINGS_ABOUT, cx);
     });
-    let o2 = render_button_entry("支持", "捐赠", "donate", cx, |_this| {
-        log::info!("Donate clicked");
+    let o2 = render_clickable_entry("支持", "捐赠", "donate", cx, |this, _window, cx| {
+        this.navigate_to(routes::SETTINGS_DONATE, cx);
     });
-    let o3 = render_button_entry("隐私政策", "打开", "privacy", cx, |_this| {
-        log::info!("Privacy clicked");
-    });
+    let o3 = render_clickable_entry(
+        "开源协议",
+        "打开",
+        "open-source-licenses",
+        cx,
+        |this, _window, cx| {
+            this.navigate_to(routes::SETTINGS_OPEN_SOURCE_LICENSES, cx);
+        },
+    );
     let other = render_settings_section("其他", cx, vec![o1, o2, o3]);
 
     // -- Advanced Settings toggle --

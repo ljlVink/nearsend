@@ -349,11 +349,7 @@ pub fn render_send_content(
                                                     Button::new("edit")
                                                         .ghost()
                                                         .on_click(cx.listener(|_this, _event, window, cx| {
-                                                            gpui_router::RouterState::global_mut(
-                                                                cx,
-                                                            )
-                                                            .location
-                                                            .pathname = routes::SEND_FILES.into();
+                                                            _this.navigate_to(routes::SEND_FILES, cx);
                                                             window.refresh();
                                                         }))
                                                         .child("编辑"),
@@ -515,11 +511,7 @@ pub fn render_send_content(
                                                                                     return;
                                                                                 }
                                                                                 this.apply_send_mode_current(super::SendMode::Link);
-                                                                                gpui_router::RouterState::global_mut(cx)
-                                                                                    .location
-                                                                                    .pathname =
-                                                                                    routes::SEND_LINK
-                                                                                        .into();
+                                                                                this.navigate_to(routes::SEND_LINK, cx);
                                                                                 window.refresh();
                                                                             });
                                                                         })

@@ -3,6 +3,17 @@
 use super::*;
 
 impl HomePage {
+    pub(super) fn navigate_to(&self, pathname: &str, cx: &mut Context<Self>) {
+        if let Some(root) = &self.root {
+            let _ = root.update(cx, |root, cx| {
+                root.navigate_to(pathname, cx);
+            });
+        } else {
+            RouterState::global_mut(cx).location.pathname = pathname.to_string().into();
+            cx.notify();
+        }
+    }
+
     pub(super) fn render_bottom_nav(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let items: [(TabType, &'static str, &'static str); 3] = [
             (TabType::Receive, "接收", "icons/wifi.svg"),

@@ -166,7 +166,7 @@ impl HomePage {
             self.receive_inbox_state
                 .update(cx, |state, _| state.clear());
             if RouterState::global(cx).location.pathname == routes::RECEIVE_INCOMING {
-                RouterState::global_mut(cx).location.pathname = routes::HOME.into();
+                self.navigate_to(routes::HOME, cx);
                 window.refresh();
             }
         }
@@ -182,7 +182,7 @@ impl HomePage {
                 "poll_incoming_events: navigate to {}",
                 routes::RECEIVE_INCOMING
             );
-            RouterState::global_mut(cx).location.pathname = routes::RECEIVE_INCOMING.into();
+            self.navigate_to(routes::RECEIVE_INCOMING, cx);
             window.refresh();
         }
     }
@@ -581,6 +581,45 @@ impl HomePage {
             let _ = dismiss.await;
             let _ = window_handle.update(cx, |_, window, cx| {
                 window.remove_notification::<CopySuccessToast>(cx);
+            });
+        })
+        .detach();
+    }
+
+    pub(super) fn show_clipboard_empty_toast(&self, window: &mut Window, cx: &mut Context<Self>) {
+        struct ClipboardEmptyToast;
+        window.push_notification(
+            Notification::new()
+                .id::<ClipboardEmptyToast>()
+                .autohide(false)
+                .content(|_, _, _| {
+                    div()
+                        .w_full()
+                        .text_xs()
+                        .text_center()
+                        .child("当前剪贴板无内容")
+                        .into_any_element()
+                })
+                .w(px(158.))
+                .py(px(4.))
+                .px(px(10.))
+                .mb(px(22.))
+                .rounded_full()
+                .shadow_none()
+                .border_color(hsla(0.0, 0.0, 0.0, 0.0))
+                .bg(hsla(0.0, 0.0, 0.12, 0.92))
+                .text_color(hsla(0.0, 0.0, 1.0, 0.96)),
+            cx,
+        );
+        let window_handle = window.window_handle();
+        let tokio_handle = self.app_state.read(cx).tokio_handle.clone();
+        let dismiss = tokio_handle.spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+        });
+        cx.spawn(async move |_this, cx| {
+            let _ = dismiss.await;
+            let _ = window_handle.update(cx, |_, window, cx| {
+                window.remove_notification::<ClipboardEmptyToast>(cx);
             });
         })
         .detach();

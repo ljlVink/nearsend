@@ -125,7 +125,7 @@ impl HomePage {
                 }
             };
             if text.is_empty() {
-                return ClipboardPickOutcome::Success(String::new());
+                return ClipboardPickOutcome::Empty;
             }
 
             ClipboardPickOutcome::Success(text)
@@ -148,6 +148,13 @@ impl HomePage {
                     let _ = home_entity.update(cx, |this, cx| {
                         this.send_selection_state.update(cx, |state, _| {
                             state.add_text(text.clone());
+                        });
+                    });
+                }
+                ClipboardPickOutcome::Empty => {
+                    let _ = window_handle.update(cx, |_, window, cx| {
+                        let _ = home_entity.update(cx, |this, cx| {
+                            this.show_clipboard_empty_toast(window, cx);
                         });
                     });
                 }
@@ -403,8 +410,9 @@ impl HomePage {
                                     });
                                     window.close_dialog(cx);
                                     if has_selected_files {
-                                        RouterState::global_mut(cx).location.pathname =
-                                            routes::SEND_LINK.into();
+                                        let _ = home_link.update(cx, |this, cx| {
+                                            this.navigate_to(routes::SEND_LINK, cx);
+                                        });
                                         window.refresh();
                                     } else {
                                         let _ = home_link.update(cx, |this, cx| {
@@ -518,7 +526,7 @@ impl HomePage {
         }
         self.apply_send_mode_current(next_mode);
         if matches!(next_mode, SendMode::Link) {
-            RouterState::global_mut(cx).location.pathname = routes::SEND_LINK.into();
+            self.navigate_to(routes::SEND_LINK, cx);
             window.refresh();
         } else {
             self.open_simple_notice_dialog(mode_text, window, cx);

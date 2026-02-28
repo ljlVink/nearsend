@@ -19,13 +19,19 @@ use gpui_router::RouterState;
 
 /// Progress page: full-screen view of ongoing transfer.
 pub struct ProgressPage {
+    pub root: Option<Entity<crate::app::AppRoot>>,
     transfer_state: Entity<TransferState>,
     direction: TransferDirection,
 }
 
 impl ProgressPage {
-    pub fn new(transfer_state: Entity<TransferState>, direction: TransferDirection) -> Self {
+    pub fn new(
+        root: Entity<crate::app::AppRoot>,
+        transfer_state: Entity<TransferState>,
+        direction: TransferDirection,
+    ) -> Self {
         Self {
+            root: Some(root),
             transfer_state,
             direction,
         }
@@ -99,9 +105,26 @@ impl gpui::Render for ProgressPage {
                                     .path("icons/arrow-left.svg")
                                     .with_size(Size::Small),
                             )
-                            .on_click(cx.listener(|_this, _event, window, cx| {
-                                RouterState::global_mut(cx).location.pathname =
-                                    routes::HOME.into();
+                            .on_click(cx.listener(|this, _event, window, cx| {
+                                if let Some(root) = &this.root {
+                                    let _ = root.update(cx, |this, cx| {
+                                        this.go_back_or_navigate(routes::HOME, cx);
+                                    });
+                                } else {
+                                    if let Some(entry) =
+                                        crate::ui::router_history::RouterHistoryState::global_mut(
+                                            cx,
+                                        )
+                                        .history
+                                        .go_back()
+                                    {
+                                        RouterState::global_mut(cx).location.pathname =
+                                            entry.pathname;
+                                    } else {
+                                        RouterState::global_mut(cx).location.pathname =
+                                            routes::HOME.into();
+                                    }
+                                }
                                 window.refresh();
                             })),
                     )
@@ -245,8 +268,22 @@ impl gpui::Render for ProgressPage {
                 Button::new("progress-done")
                     .primary()
                     .w_full()
-                    .on_click(cx.listener(|_this, _event, window, cx| {
-                        RouterState::global_mut(cx).location.pathname = routes::HOME.into();
+                    .on_click(cx.listener(|this, _event, window, cx| {
+                        if let Some(root) = &this.root {
+                            let _ = root.update(cx, |this, cx| {
+                                this.go_back_or_navigate(routes::HOME, cx);
+                            });
+                        } else {
+                            if let Some(entry) =
+                                crate::ui::router_history::RouterHistoryState::global_mut(cx)
+                                    .history
+                                    .go_back()
+                            {
+                                RouterState::global_mut(cx).location.pathname = entry.pathname;
+                            } else {
+                                RouterState::global_mut(cx).location.pathname = routes::HOME.into();
+                            }
+                        }
                         window.refresh();
                     }))
                     .child("完成")

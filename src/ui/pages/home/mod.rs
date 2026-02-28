@@ -1,19 +1,20 @@
 //! Home page: three tabs (Receive, Send, Settings) with bottom navigation.
 //! Uses gpui-router; history is a separate route (see history page).
 
-mod receive_state;
-mod receive_tab;
-mod send_state;
-mod send_tab;
-mod send_transfer_flow;
-mod settings_state;
-mod settings_tab;
 mod favorites;
 mod navigation;
+mod receive_state;
+mod receive_tab;
 mod render;
 mod runtime;
 mod send_actions;
+mod send_state;
+mod send_tab;
+mod send_transfer_flow;
 mod settings_actions;
+mod settings_selects;
+mod settings_state;
+mod settings_tab;
 
 pub use receive_state::{IncomingTransferRequest, QuickSaveMode, ReceivePageState};
 pub use send_state::{
@@ -63,6 +64,7 @@ pub enum TabType {
 
 /// Home page: receives / send / settings tabs + bottom nav.
 pub struct HomePage {
+    pub root: Option<Entity<crate::app::AppRoot>>,
     pub(super) app_state: Entity<AppState>,
     pub(super) device_state: Entity<DeviceState>,
     pub(super) transfer_state: Entity<TransferState>,
@@ -78,6 +80,10 @@ pub struct HomePage {
     pub(super) theme_select: Option<Entity<SelectState<Vec<&'static str>>>>,
     pub(super) color_select: Option<Entity<SelectState<Vec<&'static str>>>>,
     pub(super) language_select: Option<Entity<SelectState<Vec<&'static str>>>>,
+    pub(super) send_mode_default_select: Option<Entity<SelectState<Vec<&'static str>>>>,
+    pub(super) device_type_select: Option<Entity<SelectState<Vec<&'static str>>>>,
+    pub(super) device_model_select: Option<Entity<SelectState<Vec<&'static str>>>>,
+    pub(super) network_filter_mode_select: Option<Entity<SelectState<Vec<&'static str>>>>,
     // Text input state for the message input dialog
     pub(super) text_input_state: Option<Entity<InputState>>,
     // Input states for the send-to-address dialog
@@ -85,7 +91,11 @@ pub struct HomePage {
 }
 
 impl HomePage {
-    fn build_confirm_dialog_footer(id_prefix: &str, ok_text: &str, cancel_text: &str) -> DialogFooter {
+    fn build_confirm_dialog_footer(
+        id_prefix: &str,
+        ok_text: &str,
+        cancel_text: &str,
+    ) -> DialogFooter {
         DialogFooter::new()
             .child(
                 DialogClose::new().child(
@@ -135,6 +145,7 @@ impl HomePage {
     }
 
     pub fn new(
+        root: Entity<crate::app::AppRoot>,
         app_state: Entity<AppState>,
         device_state: Entity<DeviceState>,
         transfer_state: Entity<TransferState>,
@@ -168,6 +179,7 @@ impl HomePage {
         };
 
         Self {
+            root: Some(root),
             app_state,
             device_state,
             transfer_state,
@@ -182,6 +194,10 @@ impl HomePage {
             theme_select: None,
             color_select: None,
             language_select: None,
+            send_mode_default_select: None,
+            device_type_select: None,
+            device_model_select: None,
+            network_filter_mode_select: None,
             text_input_state: None,
             send_ip_input_state: None,
         }
@@ -200,6 +216,7 @@ enum AddressInputMode {
 
 enum ClipboardPickOutcome {
     Success(String),
+    Empty,
     PermissionDenied,
     ReadFailed,
 }
@@ -222,7 +239,6 @@ enum SendUiMessage {
     },
     RefreshProgress,
 }
-
 
 fn detect_primary_route_ipv4() -> Option<Ipv4Addr> {
     let probes = [("224.0.0.167", 53317), ("1.1.1.1", 80), ("8.8.8.8", 80)];
