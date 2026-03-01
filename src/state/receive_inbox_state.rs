@@ -144,6 +144,7 @@ impl ReceiveInboxState {
         }
     }
 
+    #[allow(dead_code)]
     pub fn selected_file_ids(&self) -> Vec<String> {
         self.active
             .as_ref()

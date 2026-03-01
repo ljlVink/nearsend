@@ -3,6 +3,7 @@
 use super::*;
 
 impl HomePage {
+    #[allow(dead_code)]
     pub(super) fn send_mode_label(mode: SendMode) -> &'static str {
         match mode {
             SendMode::Single => "单设备",
@@ -11,6 +12,7 @@ impl HomePage {
         }
     }
 
+    #[allow(dead_code)]
     pub(super) fn send_mode_setting_label(mode: SendModeSetting) -> &'static str {
         match mode {
             SendModeSetting::Single => "单设备",
@@ -427,6 +429,7 @@ impl HomePage {
             .map(|c| c.token.clone());
         let announce_info = self.app_state.read(cx).client_info.clone();
         let use_https = self.settings_state.encryption;
+        let discovery_target_subnets = self.settings_state.discovery_target_subnets.clone();
         let handle = self.app_state.read(cx).tokio_handle.clone();
         let join = handle.spawn(async move {
             if let Some(info) = announce_info {
@@ -448,6 +451,7 @@ impl HomePage {
                 use_https,
                 Duration::from_millis(timeout_ms),
                 self_fingerprint,
+                discovery_target_subnets,
             )
             .await
         });
@@ -548,6 +552,7 @@ impl HomePage {
         });
     }
 
+    #[allow(dead_code)]
     pub(super) fn show_copy_success_toast(&self, window: &mut Window, cx: &mut Context<Self>) {
         struct CopySuccessToast;
         window.push_notification(

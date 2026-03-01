@@ -8,6 +8,7 @@ use tokio::runtime::Handle;
 #[derive(Clone)]
 pub struct AppState {
     pub server: Entity<ServerManager>,
+    #[allow(dead_code)]
     pub selected_files: Vec<PathBuf>,
     pub client_info: Option<ClientInfo>,
     pub cert: Option<CertPair>,

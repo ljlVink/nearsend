@@ -32,6 +32,7 @@ struct ServerState {
     sessions: Arc<Mutex<HashMap<String, IncomingSession>>>,
     pin_config: Arc<Mutex<ReceivePinConfig>>,
     pin_attempts: Arc<Mutex<HashMap<IpAddr, PinAttemptInfo>>>,
+    #[allow(dead_code)]
     default_save_directory: Arc<Mutex<Option<PathBuf>>>,
 }
 
@@ -92,6 +93,7 @@ struct WirePeerInfo {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct WireFileDto {
+    #[allow(dead_code)]
     id: String,
     file_name: String,
     size: u64,

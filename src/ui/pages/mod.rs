@@ -12,12 +12,14 @@ pub mod web_send;
 pub use about::AboutPage;
 pub use donate::DonatePage;
 pub use history::HistoryPage;
+#[allow(unused_imports)]
 pub use home::{
     ColorMode, HomePage, IncomingTransferRequest, QuickSaveMode, ReceivePageState,
     SelectedFileInfo, SendMode, SendPageState, SettingsPageState, TabType, ThemeMode,
 };
 pub use open_source_licenses::OpenSourceLicensesPage;
 pub use progress::ProgressPage;
+#[allow(unused_imports)]
 pub use receive_dialog::ReceiveDialog;
 pub use receive_incoming::ReceiveIncomingPage;
 pub use selected_files::SelectedFilesPage;

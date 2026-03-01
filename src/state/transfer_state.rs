@@ -43,6 +43,7 @@ pub struct TransferInfo {
     pub total_bytes: u64,
     pub file_name: String,
     pub speed_bytes_per_sec: u64,
+    #[allow(dead_code)]
     pub eta_seconds: Option<u64>,
     pub files: Vec<FileTransferInfo>,
 }
@@ -78,6 +79,7 @@ impl TransferState {
         }
     }
 
+    #[allow(dead_code)]
     pub async fn update_transfer(&self, id: &str, status: TransferStatus, progress: f64) {
         if let Some(transfer) = self.transfers.write().await.get_mut(id) {
             transfer.status = status;
@@ -184,10 +186,12 @@ impl TransferState {
         candidate
     }
 
+    #[allow(dead_code)]
     pub async fn get_transfers(&self) -> Vec<TransferInfo> {
         self.transfers.read().await.values().cloned().collect()
     }
 
+    #[allow(dead_code)]
     pub async fn remove_transfer(&self, id: &str) {
         let removed = self.transfers.write().await.remove(id);
         if let Some(transfer) = removed {

@@ -1,5 +1,5 @@
 use gpui::{div, prelude::*, Animation, AnimationExt as _, IntoElement, Window};
-use gpui_component::{ActiveTheme as _, StyledExt as _};
+use gpui_component::ActiveTheme as _;
 use std::time::Duration;
 
 /// Simple slideshow that cycles through text children.

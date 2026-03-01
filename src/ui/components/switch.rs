@@ -1,5 +1,5 @@
 use gpui::{div, prelude::*, px, IntoElement, Window};
-use gpui_component::{ActiveTheme as _, StyledExt as _};
+use gpui_component::ActiveTheme as _;
 
 /// Switch component matching localsend's Switch/toggle design.
 /// Parent should wrap with on_click for state updates.

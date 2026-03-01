@@ -1,6 +1,7 @@
 //! Settings interactions and address-target dialogs.
 
 use super::*;
+use gpui_component::scroll::ScrollableElement as _;
 
 impl HomePage {
     /// Opens a dialog with a multiline text input for sending text messages.
@@ -290,6 +291,7 @@ impl HomePage {
         });
     }
 
+    #[allow(dead_code)]
     pub(super) fn pick_receive_destination(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let window_handle = window.window_handle();
         let home_entity = cx.entity();
@@ -330,6 +332,7 @@ impl HomePage {
         .detach();
     }
 
+    #[allow(dead_code)]
     pub(super) fn clear_receive_destination(&mut self, cx: &mut Context<Self>) {
         self.settings_state.destination = None;
         self.sync_server_config_to_runtime(cx);
@@ -379,7 +382,7 @@ impl HomePage {
                         });
                         return false;
                     };
-                    home_for_ok.update(cx, |this, cx| {
+                    home_for_ok.update(cx, |this, _cx| {
                         this.settings_state.discovery_timeout = value.max(200);
                         this.persist_settings();
                     });
@@ -430,8 +433,268 @@ impl HomePage {
                         });
                         return false;
                     }
-                    home_for_ok.update(cx, |this, cx| {
+                    home_for_ok.update(cx, |this, _cx| {
                         this.settings_state.multicast_group = raw;
+                        this.persist_settings();
+                    });
+                    true
+                })
+        });
+    }
+
+    pub(super) fn open_discovery_target_subnets_dialog(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let mut rows = self.settings_state.discovery_target_subnets.clone();
+        if rows.is_empty() {
+            rows.push(String::new());
+        }
+        self.open_discovery_target_subnets_dialog_with_items(rows, window, cx);
+    }
+
+    fn open_discovery_target_subnets_dialog_with_items(
+        &mut self,
+        mut items: Vec<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if items.is_empty() {
+            items.push(String::new());
+        }
+
+        let mut input_states: Vec<Entity<InputState>> = Vec::with_capacity(items.len());
+        for value in items {
+            let state = cx.new(|cx| InputState::new(window, cx).placeholder("请输入"));
+            state.update(cx, |s, cx| {
+                s.set_value(value.clone(), window, cx);
+            });
+            input_states.push(state);
+        }
+
+        let home_entity = cx.entity();
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            let rows_for_save = input_states.clone();
+            let home_for_save = home_entity.clone();
+
+            let row_elements: Vec<AnyElement> = input_states
+                .iter()
+                .enumerate()
+                .map(|(idx, input_state)| {
+                    let input_state = input_state.clone();
+                    let rows_for_add = input_states.clone();
+                    let rows_for_remove = input_states.clone();
+                    let home_for_add = home_entity.clone();
+                    let home_for_remove = home_entity.clone();
+
+                    h_flex()
+                        .id(format!("discovery-target-subnet-row-{idx}"))
+                        .w_full()
+                        .items_center()
+                        .gap(px(6.))
+                        .child(
+                            div()
+                                .flex_1()
+                                .child(Input::new(&input_state).appearance(true).large()),
+                        )
+                        .child(
+                            div()
+                                .id(format!("discovery-target-subnet-add-{idx}"))
+                                .w(px(24.))
+                                .h(px(24.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .cursor_pointer()
+                                .text_color(_cx.theme().muted_foreground)
+                                .on_click(move |_event, window, cx| {
+                                    let mut values = rows_for_add
+                                        .iter()
+                                        .map(|state| state.read(cx).value().trim().to_string())
+                                        .collect::<Vec<_>>();
+                                    if values.len() >= 32 {
+                                        let _ = home_for_add.update(cx, |this, cx| {
+                                            this.open_simple_notice_dialog(
+                                                "最多支持 32 条发现目标规则。",
+                                                window,
+                                                cx,
+                                            );
+                                        });
+                                        return;
+                                    }
+                                    values.insert(idx + 1, String::new());
+                                    window.close_dialog(cx);
+                                    let _ = home_for_add.update(cx, |this, cx| {
+                                        this.open_discovery_target_subnets_dialog_with_items(
+                                            values, window, cx,
+                                        );
+                                    });
+                                })
+                                .child(
+                                    Icon::default()
+                                        .path("icons/plus.svg")
+                                        .with_size(Size::Small),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .id(format!("discovery-target-subnet-remove-{idx}"))
+                                .w(px(24.))
+                                .h(px(24.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .cursor_pointer()
+                                .text_color(_cx.theme().muted_foreground)
+                                .on_click(move |_event, window, cx| {
+                                    let mut values = rows_for_remove
+                                        .iter()
+                                        .map(|state| state.read(cx).value().trim().to_string())
+                                        .collect::<Vec<_>>();
+                                    if values.len() <= 1 {
+                                        values = vec![String::new()];
+                                    } else {
+                                        values.remove(idx);
+                                    }
+                                    window.close_dialog(cx);
+                                    let _ = home_for_remove.update(cx, |this, cx| {
+                                        this.open_discovery_target_subnets_dialog_with_items(
+                                            values, window, cx,
+                                        );
+                                    });
+                                })
+                                .child(
+                                    Icon::default()
+                                        .path("icons/trash.svg")
+                                        .with_size(Size::Small),
+                                ),
+                        )
+                        .into_any_element()
+                })
+                .collect();
+
+            dialog
+                .title("发现目标网段")
+                .overlay(true)
+                .w(px(340.))
+                .child(
+                    v_flex()
+                        .w_full()
+                        .gap(px(10.))
+                        .child(
+                            div()
+                                .w_full()
+                                .text_xs()
+                                .line_height(px(18.))
+                                .text_color(_cx.theme().muted_foreground)
+                                .child("每行一条规则"),
+                        )
+                        .child(
+                            div()
+                                .w_full()
+                                .rounded_md()
+                                .border_1()
+                                .border_color(_cx.theme().border)
+                                .bg(_cx.theme().secondary)
+                                .p(px(8.))
+                                .child(
+                                    v_flex()
+                                        .w_full()
+                                        .gap(px(4.))
+                                        .child(
+                                            div()
+                                                .text_xs()
+                                                .text_color(_cx.theme().muted_foreground)
+                                                .child("输入示例"),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_xs()
+                                                .line_height(px(18.))
+                                                .text_color(_cx.theme().foreground)
+                                                .child("192.168.2.0/24"),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_xs()
+                                                .line_height(px(18.))
+                                                .text_color(_cx.theme().foreground)
+                                                .child("192.168.2.*"),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_xs()
+                                                .line_height(px(18.))
+                                                .text_color(_cx.theme().foreground)
+                                                .child("192.168.2"),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_xs()
+                                                .line_height(px(18.))
+                                                .text_color(_cx.theme().foreground)
+                                                .child("192.168.2.15"),
+                                        ),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .w_full()
+                                .max_h(px(260.))
+                                .overflow_y_scrollbar()
+                                .child(v_flex().w_full().gap(px(8.)).children(row_elements)),
+                        ),
+                )
+                .button_props(
+                    gpui_component::dialog::DialogButtonProps::default()
+                        .ok_text("保存")
+                        .show_cancel(true)
+                        .cancel_text("取消"),
+                )
+                .footer(Self::build_confirm_dialog_footer(
+                    "discovery-target-subnets",
+                    "保存",
+                    "取消",
+                ))
+                .on_ok(move |_event, window, cx| {
+                    let values = rows_for_save
+                        .iter()
+                        .map(|state| state.read(cx).value().trim().to_string())
+                        .filter(|token| !token.is_empty())
+                        .collect::<Vec<_>>();
+                    let mut valid_rules: Vec<String> = Vec::new();
+                    let mut invalid_rules: Vec<String> = Vec::new();
+                    for token in values {
+                        if crate::core::discovery::is_discovery_target_rule_valid(&token) {
+                            if !valid_rules.iter().any(|item| item == &token) {
+                                valid_rules.push(token);
+                            }
+                        } else {
+                            invalid_rules.push(token);
+                        }
+                    }
+                    if !invalid_rules.is_empty() {
+                        let preview = invalid_rules
+                            .iter()
+                            .take(3)
+                            .cloned()
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        home_for_save.update(cx, |this, cx| {
+                            this.open_simple_notice_dialog(
+                                &format!(
+                                    "存在无效网段规则：{}。仅支持 /24~/32、192.168.2.*、192.168.2 或单个 IP。",
+                                    preview
+                                ),
+                                window,
+                                cx,
+                            );
+                        });
+                        return false;
+                    }
+                    home_for_save.update(cx, |this, _cx| {
+                        this.settings_state.discovery_target_subnets = valid_rules;
                         this.persist_settings();
                     });
                     true

@@ -58,16 +58,19 @@ impl DeviceCard {
         self
     }
 
+    #[allow(dead_code)]
     pub fn info(mut self, info: impl Into<String>) -> Self {
         self.info = Some(info.into());
         self
     }
 
+    #[allow(dead_code)]
     pub fn progress(mut self, progress: Option<f64>) -> Self {
         self.progress = progress;
         self
     }
 
+    #[allow(dead_code)]
     pub fn on_select<F>(mut self, handler: F) -> Self
     where
         F: Fn(&ClientInfo, &mut Window, &mut gpui::App) + 'static,

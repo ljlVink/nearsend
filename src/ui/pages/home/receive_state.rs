@@ -12,6 +12,7 @@ pub enum QuickSaveMode {
 }
 
 /// Incoming transfer request from another device.
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct IncomingTransferRequest {
     pub sender: ClientInfo,
@@ -21,6 +22,7 @@ pub struct IncomingTransferRequest {
 }
 
 /// Receive tab state
+#[allow(dead_code)]
 pub struct ReceivePageState {
     pub quick_save_mode: QuickSaveMode,
     pub show_advanced: bool,

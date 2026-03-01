@@ -25,6 +25,7 @@ impl TransferItem {
         }
     }
 
+    #[allow(dead_code)]
     pub fn on_cancel<F>(mut self, handler: F) -> Self
     where
         F: Fn(&str, &mut Window, &mut gpui::App) + 'static,
@@ -33,6 +34,7 @@ impl TransferItem {
         self
     }
 
+    #[allow(dead_code)]
     pub fn on_open<F>(mut self, handler: F) -> Self
     where
         F: Fn(&str, &mut Window, &mut gpui::App) + 'static,

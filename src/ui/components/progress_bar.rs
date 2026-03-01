@@ -1,5 +1,5 @@
 use gpui::{div, prelude::*, px, relative, IntoElement, Window};
-use gpui_component::{h_flex, ActiveTheme as _, StyledExt as _};
+use gpui_component::{h_flex, ActiveTheme as _};
 
 /// Progress bar component matching localsend's CustomProgressBar
 #[derive(IntoElement)]
@@ -16,6 +16,7 @@ impl ProgressBar {
         }
     }
 
+    #[allow(dead_code)]
     pub fn height(mut self, height: f32) -> Self {
         self.height = height;
         self

@@ -104,6 +104,7 @@ fn get_pick_folders_tsfn() -> Result<Arc<PickFoldersTsfn>> {
         .ok_or_else(|| Error::from_reason("folder picker callback is not registered"))
 }
 
+#[allow(dead_code)]
 fn get_pick_save_dir_tsfn() -> Result<Arc<PickSaveDirTsfn>> {
     PICK_SAVE_DIR_TSFN
         .read()
@@ -182,6 +183,7 @@ pub async fn pick_folders() -> Result<Vec<String>> {
     Ok(uris)
 }
 
+#[allow(dead_code)]
 pub async fn pick_save_directory() -> Result<Option<PathBuf>> {
     let tsfn = get_pick_save_dir_tsfn()?;
     let (tx, rx) = oneshot::channel::<Result<String>>();
@@ -315,6 +317,7 @@ fn persist_uris_or_err(uris: &[String], operation_mode: u32) -> Result<()> {
 
 /// Convert picker output (URI or path) to PathBuf.
 /// On OpenHarmony, prefer `ohos-fileuri-binding` to resolve URIs to native paths.
+#[allow(dead_code)]
 pub fn picker_uri_to_path(uri: &str) -> Option<PathBuf> {
     let trimmed = uri.trim();
     if trimmed.is_empty() {

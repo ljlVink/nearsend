@@ -5,6 +5,7 @@ use gpui_component::{
 };
 
 /// Big button component matching localsend's BigButton design
+#[allow(dead_code)]
 #[derive(IntoElement)]
 pub struct BigButton {
     icon: String, // Emoji or icon identifier
@@ -13,6 +14,7 @@ pub struct BigButton {
     on_tap: Option<std::rc::Rc<dyn Fn(&mut Window, &mut gpui::App) + 'static>>,
 }
 
+#[allow(dead_code)]
 impl BigButton {
     pub const DESKTOP_WIDTH: f32 = 100.0;
     pub const MOBILE_WIDTH: f32 = 90.0;
@@ -42,7 +44,7 @@ impl BigButton {
 }
 
 impl gpui::RenderOnce for BigButton {
-    fn render(self, window: &mut Window, cx: &mut gpui::App) -> impl IntoElement {
+    fn render(self, _window: &mut Window, _cx: &mut gpui::App) -> impl IntoElement {
         let on_tap = self.on_tap.clone();
         let icon = self.icon.clone();
         let label = self.label.clone();

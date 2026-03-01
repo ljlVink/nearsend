@@ -66,11 +66,140 @@ struct InfoDto {
     token: Option<String>,
 }
 
+const MAX_AUTO_SCAN_PREFIX_COUNT: usize = 3;
+const MAX_CUSTOM_SCAN_CANDIDATES: usize = 4096;
+const MIN_CUSTOM_CIDR_PREFIX: u8 = 24;
+
+#[derive(Clone, Copy, Debug)]
+enum DiscoveryTargetRule {
+    Single(Ipv4Addr),
+    Cidr { network: Ipv4Addr, prefix: u8 },
+}
+
+pub fn is_discovery_target_rule_valid(rule: &str) -> bool {
+    parse_discovery_target_rule(rule).is_some()
+}
+
+fn parse_discovery_target_rule(rule: &str) -> Option<DiscoveryTargetRule> {
+    let trimmed = rule.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if let Some((ip_part, prefix_part)) = trimmed.split_once('/') {
+        let ip = ip_part.trim().parse::<Ipv4Addr>().ok()?;
+        let prefix = prefix_part.trim().parse::<u8>().ok()?;
+        if prefix > 32 {
+            return None;
+        }
+        if prefix == 32 {
+            return Some(DiscoveryTargetRule::Single(ip));
+        }
+        if prefix < MIN_CUSTOM_CIDR_PREFIX {
+            return None;
+        }
+        let mask = u32::MAX << (32 - prefix as u32);
+        let network = Ipv4Addr::from(u32::from(ip) & mask);
+        return Some(DiscoveryTargetRule::Cidr { network, prefix });
+    }
+
+    let normalized = trimmed.trim_end_matches('.');
+    if normalized.contains('*') {
+        if normalized.matches('*').count() != 1 || !normalized.ends_with('*') {
+            return None;
+        }
+        let prefix_text = normalized.trim_end_matches('*').trim_end_matches('.');
+        let parts = prefix_text
+            .split('.')
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>();
+        if parts.len() != 3 {
+            return None;
+        }
+        let a = parts[0].parse::<u8>().ok()?;
+        let b = parts[1].parse::<u8>().ok()?;
+        let c = parts[2].parse::<u8>().ok()?;
+        return Some(DiscoveryTargetRule::Cidr {
+            network: Ipv4Addr::new(a, b, c, 0),
+            prefix: 24,
+        });
+    }
+
+    let parts = normalized
+        .split('.')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    match parts.len() {
+        4 => Some(DiscoveryTargetRule::Single(
+            normalized.parse::<Ipv4Addr>().ok()?,
+        )),
+        3 => {
+            let a = parts[0].parse::<u8>().ok()?;
+            let b = parts[1].parse::<u8>().ok()?;
+            let c = parts[2].parse::<u8>().ok()?;
+            Some(DiscoveryTargetRule::Cidr {
+                network: Ipv4Addr::new(a, b, c, 0),
+                prefix: 24,
+            })
+        }
+        _ => None,
+    }
+}
+
+fn collect_custom_discovery_candidates(
+    rules: &[String],
+    local_ip_set: &BTreeSet<String>,
+) -> Vec<String> {
+    let mut set = BTreeSet::new();
+
+    for rule in rules {
+        let token = rule.trim();
+        if token.is_empty() {
+            continue;
+        }
+
+        let Some(parsed) = parse_discovery_target_rule(token) else {
+            log::warn!("skip invalid discovery target rule: {}", token);
+            continue;
+        };
+
+        match parsed {
+            DiscoveryTargetRule::Single(ip) => {
+                let ip_text = ip.to_string();
+                if !local_ip_set.contains(&ip_text) {
+                    set.insert(ip_text);
+                }
+            }
+            DiscoveryTargetRule::Cidr { network, prefix } => {
+                let base = u32::from(network);
+                let host_count = 1u32 << (32 - prefix as u32);
+                for offset in 0..host_count {
+                    if set.len() >= MAX_CUSTOM_SCAN_CANDIDATES {
+                        log::warn!(
+                            "custom discovery candidate limit reached ({}), stop expanding rules",
+                            MAX_CUSTOM_SCAN_CANDIDATES
+                        );
+                        return set.into_iter().collect();
+                    }
+                    let ip_text = Ipv4Addr::from(base + offset).to_string();
+                    if local_ip_set.contains(&ip_text) {
+                        continue;
+                    }
+                    set.insert(ip_text);
+                }
+            }
+        }
+    }
+
+    set.into_iter().collect()
+}
+
 pub async fn scan_local_network(
     port: u16,
     https: bool,
     timeout: Duration,
     self_fingerprint: Option<String>,
+    discovery_target_subnets: Vec<String>,
 ) -> Vec<DiscoveredDevice> {
     let self_fingerprint = self_fingerprint.unwrap_or_default();
     let mut dedup: HashMap<String, DiscoveredDevice> = HashMap::new();
@@ -82,8 +211,8 @@ pub async fn scan_local_network(
         log::info!("discovery scan starts with {} passive devices", dedup.len());
     }
 
-    let prefixes = local_subnet_prefixes().await;
-    if prefixes.is_empty() {
+    let interface_ips = local_interface_ipv4s().await;
+    if interface_ips.is_empty() && discovery_target_subnets.is_empty() {
         return dedup.into_values().collect();
     }
 
@@ -99,22 +228,42 @@ pub async fn scan_local_network(
         }
     };
 
-    let mut candidates = Vec::new();
-    for interface_ip in prefixes.into_iter().take(3) {
-        let base_prefix = interface_ip
-            .split('.')
-            .take(3)
-            .collect::<Vec<_>>()
-            .join(".");
+    let local_ip_set = interface_ips
+        .iter()
+        .cloned()
+        .collect::<BTreeSet<String>>();
+    let mut candidate_set = BTreeSet::new();
+
+    for interface_ip in interface_ips.iter().take(MAX_AUTO_SCAN_PREFIX_COUNT) {
+        let Ok(local_v4) = interface_ip.parse::<Ipv4Addr>() else {
+            continue;
+        };
+        let octets = local_v4.octets();
+        let base_prefix = format!("{}.{}.{}", octets[0], octets[1], octets[2]);
         for i in 0..=255 {
             let ip = format!("{}.{}", base_prefix, i);
-            if ip == interface_ip {
+            if local_ip_set.contains(&ip) {
                 continue;
             }
-            candidates.push(ip);
+            candidate_set.insert(ip);
         }
     }
+
+    if !discovery_target_subnets.is_empty() {
+        log::info!(
+            "discovery custom target rules: {:?}",
+            discovery_target_subnets
+        );
+        for ip in collect_custom_discovery_candidates(&discovery_target_subnets, &local_ip_set) {
+            candidate_set.insert(ip);
+        }
+    }
+
+    let candidates = candidate_set.into_iter().collect::<Vec<_>>();
     log::info!("discovery scan candidate count: {}", candidates.len());
+    if candidates.is_empty() {
+        return dedup.into_values().collect();
+    }
 
     let mut out = Vec::new();
     let discovered = stream::iter(candidates.into_iter())
@@ -206,7 +355,7 @@ async fn scan_one_ip(
     })
 }
 
-async fn local_subnet_prefixes() -> Vec<String> {
+async fn local_interface_ipv4s() -> Vec<String> {
     let mut local_ips = Vec::<Ipv4Addr>::new();
 
     if let Ok(interfaces) = if_addrs::get_if_addrs() {

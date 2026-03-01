@@ -426,6 +426,21 @@ pub fn render_settings_content(
                 this.open_discovery_timeout_dialog(window, cx);
             },
         );
+        let discovery_target_subnets_label = if app.settings_state.discovery_target_subnets.is_empty()
+        {
+            "未设置".to_string()
+        } else {
+            format!("{} 条", app.settings_state.discovery_target_subnets.len())
+        };
+        let discovery_target_subnets_entry = render_clickable_entry(
+            "发现目标网段",
+            &discovery_target_subnets_label,
+            "discovery-target-subnets",
+            cx,
+            |this, window, cx| {
+                this.open_discovery_target_subnets_dialog(window, cx);
+            },
+        );
         let multicast_entry = render_clickable_entry(
             "组播地址",
             &app.settings_state.multicast_group,
@@ -454,6 +469,7 @@ pub fn render_settings_content(
         network_children.push(device_model_entry);
         network_children.push(n3);
         network_children.push(discovery_timeout_entry);
+        network_children.push(discovery_target_subnets_entry);
         network_children.push(multicast_entry);
         network_children.push(n4);
         network_children.push(n5);

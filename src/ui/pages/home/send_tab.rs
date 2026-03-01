@@ -482,7 +482,7 @@ pub fn render_send_content(
                                                     .content({
                                                         let home_entity = home_entity.clone();
                                                         let current_mode = app.send_state.send_mode;
-                                                        move |_state, window, cx| {
+                                                        move |_state, _window, cx| {
                                                             let home_single = home_entity.clone();
                                                             let home_multiple = home_entity.clone();
                                                             let home_link = home_entity.clone();

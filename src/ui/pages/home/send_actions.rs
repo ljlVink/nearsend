@@ -317,6 +317,7 @@ impl HomePage {
         });
     }
 
+    #[allow(dead_code)]
     pub(super) fn open_send_mode_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let current_mode = self.settings_state.send_mode_default;
         let home_entity = cx.entity();
@@ -401,7 +402,7 @@ impl HomePage {
                                 .w_full()
                                 .on_click(move |_event, window, cx| {
                                     let mut has_selected_files = false;
-                                    let _ = home_link.update(cx, |this, cx| {
+                                    let _ = home_link.update(cx, |this, _cx| {
                                         has_selected_files =
                                             !this.send_state.selected_files.is_empty();
                                         if has_selected_files {
@@ -510,6 +511,7 @@ impl HomePage {
         });
     }
 
+    #[allow(dead_code)]
     pub(super) fn cycle_send_mode(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let next_mode = match self.send_state.send_mode {
             SendMode::Single => SendMode::Multiple,
@@ -533,6 +535,7 @@ impl HomePage {
         }
     }
 
+    #[allow(dead_code)]
     fn open_share_link_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let mut entries = Vec::new();
         for file in &self.send_state.selected_files {

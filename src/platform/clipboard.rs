@@ -23,6 +23,7 @@ static WRITE_CLIPBOARD_TSFN: LazyLock<RwLock<Option<Arc<WriteClipboardTsfn>>>> =
 static OHOS_APP: LazyLock<RwLock<Option<OpenHarmonyApp>>> = LazyLock::new(|| RwLock::new(None));
 
 const READ_PASTEBOARD_PERMISSION: &str = "ohos.permission.READ_PASTEBOARD";
+#[allow(dead_code)]
 const WRITE_PASTEBOARD_PERMISSION: &str = "ohos.permission.WRITE_PASTEBOARD";
 
 pub fn set_ohos_app(app: OpenHarmonyApp) {
@@ -126,6 +127,7 @@ pub async fn ensure_read_clipboard_permission() -> Result<bool> {
     request_permissions(vec![READ_PASTEBOARD_PERMISSION.to_string()]).await
 }
 
+#[allow(dead_code)]
 pub async fn ensure_write_clipboard_permission() -> Result<bool> {
     if has_permission(WRITE_PASTEBOARD_PERMISSION) {
         return Ok(true);

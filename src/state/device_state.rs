@@ -4,11 +4,13 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 /// Device state management
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct DeviceState {
     devices: Arc<RwLock<HashMap<String, ClientInfo>>>,
 }
 
+#[allow(dead_code)]
 impl DeviceState {
     pub fn new() -> Self {
         Self {

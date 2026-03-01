@@ -54,6 +54,7 @@ impl SendSelectionState {
         self.items.push(SendSelectionItem::from_text(text));
     }
 
+    #[allow(dead_code)]
     pub fn add_paths_recursive(&mut self, paths: Vec<PathBuf>) -> usize {
         let mut added = 0usize;
         for path in paths {
@@ -124,6 +125,7 @@ impl SendSelectionState {
         added
     }
 
+    #[allow(dead_code)]
     fn add_single_file(&mut self, path: PathBuf) -> usize {
         self.add_single_file_with_uri(path, None)
     }

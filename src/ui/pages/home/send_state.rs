@@ -92,7 +92,9 @@ pub struct SendPageState {
     pub scanning: bool,
     pub local_ips: Vec<String>,
     pub send_mode: SendMode,
+    #[allow(dead_code)]
     pub help_index: usize,
+    #[allow(dead_code)]
     pub show_scan_menu: bool,
     pub show_send_mode_menu: bool,
     pub target_device: Option<ClientInfo>,

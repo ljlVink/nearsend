@@ -10,7 +10,7 @@ NearSend is a cross-platform file sharing application that implements the LocalS
 
 - [LocalSend Protocol](https://github.com/localsend/protocol)
 - [LocalSend Application](https://github.com/localsend/localsend)
-- [GPUI](https://github.com)
+- [GPUI](https://github.com/zed-industries/zed)
 - [GPUI-Component](https://github.com/longbridge/gpui-component)
 - [GPUI-Router](https://github.com/justjavac/gpui-router)
 

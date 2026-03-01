@@ -11,6 +11,7 @@ use localsend::http::state::ClientInfo;
 use localsend::model::transfer::FileDto;
 
 /// Receive dialog state.
+#[allow(dead_code)]
 pub struct ReceiveDialog {
     pub sender: ClientInfo,
     pub files: Vec<FileDto>,
@@ -18,6 +19,7 @@ pub struct ReceiveDialog {
     pub session_id: String,
 }
 
+#[allow(dead_code)]
 impl ReceiveDialog {
     pub fn new(sender: ClientInfo, files: Vec<FileDto>, session_id: String) -> Self {
         let selected = vec![true; files.len()];
@@ -233,6 +235,7 @@ impl gpui::Render for ReceiveDialog {
     }
 }
 
+#[allow(dead_code)]
 fn format_file_size(bytes: u64) -> String {
     if bytes < 1024 {
         format!("{} B", bytes)

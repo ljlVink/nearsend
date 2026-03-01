@@ -32,6 +32,7 @@ pub enum IncomingTransferEvent {
     },
     Cancelled {
         session_id: String,
+        #[allow(dead_code)]
         reason: Option<String>,
     },
 }
