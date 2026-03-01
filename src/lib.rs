@@ -73,6 +73,7 @@ pub fn openharmony_app(app: OpenHarmonyApp) {
                     ..Default::default()
                 },
                 |window, cx| {
+                    window.set_safe_area_avoidance(false);
                     let view = cx.new(|cx| {
                         let server = cx.new(|_| core::server::ServerManager::new(53317));
 

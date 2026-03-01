@@ -9,8 +9,8 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-gpui = { git = "https://github.com/richerfu/zed.git", rev = "f1529bc6b67c4334b32a19541bf6ce61b8e185e7" }
-gpui_platform = { git = "https://github.com/richerfu/zed.git", rev = "f1529bc6b67c4334b32a19541bf6ce61b8e185e7" }
+gpui = { git = "https://github.com/richerfu/zed.git", rev = "a2bc1a018a831ef236657fb15bcc985f0e375d76" }
+gpui_platform = { git = "https://github.com/richerfu/zed.git", rev = "a2bc1a018a831ef236657fb15bcc985f0e375d76" }
 gpui-component = { git = "https://github.com/longbridge/gpui-component.git" }
 gpui-router = { version = "0.3" }
 gpui-component-assets = { git = "https://github.com/longbridge/gpui-component.git" }
@@ -67,14 +67,14 @@ napi-build-ohos = { version = "=1.1.6" }
 
 # 强制 patch 所有来源的依赖，确保统一使用本地路径
 [patch.crates-io]
-gpui = { git = "https://github.com/richerfu/zed.git", rev = "f1529bc6b67c4334b32a19541bf6ce61b8e185e7" }
-gpui_platform = { git = "https://github.com/richerfu/zed.git", rev = "f1529bc6b67c4334b32a19541bf6ce61b8e185e7" }
+gpui = { git = "https://github.com/richerfu/zed.git", rev = "a2bc1a018a831ef236657fb15bcc985f0e375d76" }
+gpui_platform = { git = "https://github.com/richerfu/zed.git", rev = "a2bc1a018a831ef236657fb15bcc985f0e375d76" }
 
 
 [patch."https://github.com/zed-industries/zed.git"]
-gpui = { git = "https://github.com/richerfu/zed.git", rev = "f1529bc6b67c4334b32a19541bf6ce61b8e185e7" }
-gpui_platform = { git = "https://github.com/richerfu/zed.git", rev = "f1529bc6b67c4334b32a19541bf6ce61b8e185e7" }
+gpui = { git = "https://github.com/richerfu/zed.git", rev = "a2bc1a018a831ef236657fb15bcc985f0e375d76" }
+gpui_platform = { git = "https://github.com/richerfu/zed.git", rev = "a2bc1a018a831ef236657fb15bcc985f0e375d76" }
 
 [patch."https://github.com/zed-industries/zed"]
-gpui = { git = "https://github.com/richerfu/zed.git", rev = "f1529bc6b67c4334b32a19541bf6ce61b8e185e7" }
-gpui_platform = { git = "https://github.com/richerfu/zed.git", rev = "f1529bc6b67c4334b32a19541bf6ce61b8e185e7" }
+gpui = { git = "https://github.com/richerfu/zed.git", rev = "a2bc1a018a831ef236657fb15bcc985f0e375d76" }
+gpui_platform = { git = "https://github.com/richerfu/zed.git", rev = "a2bc1a018a831ef236657fb15bcc985f0e375d76" }
