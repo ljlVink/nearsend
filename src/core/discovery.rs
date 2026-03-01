@@ -228,10 +228,7 @@ pub async fn scan_local_network(
         }
     };
 
-    let local_ip_set = interface_ips
-        .iter()
-        .cloned()
-        .collect::<BTreeSet<String>>();
+    let local_ip_set = interface_ips.iter().cloned().collect::<BTreeSet<String>>();
     let mut candidate_set = BTreeSet::new();
 
     for interface_ip in interface_ips.iter().take(MAX_AUTO_SCAN_PREFIX_COUNT) {

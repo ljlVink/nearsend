@@ -6,7 +6,7 @@ use gpui_component::input::{Input, InputState};
 use gpui_component::notification::Notification;
 use gpui_component::scroll::ScrollableElement as _;
 use gpui_component::{
-    button::{Button, ButtonVariants as _},
+    button::{Button, ButtonCustomVariant, ButtonVariants as _},
     dialog::{DialogAction, DialogClose, DialogFooter},
     h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _, Size, StyledExt as _, WindowExt as _,
 };
@@ -437,6 +437,9 @@ impl gpui::Render for WebSendPage {
             .share_via_link_auto_accept;
         let require_pin = self.home_entity.read(cx).settings_state.require_pin;
         let pin = self.home_entity.read(cx).settings_state.receive_pin.clone();
+        let nav_button_variant = ButtonCustomVariant::new(cx)
+            .hover(cx.theme().transparent)
+            .active(cx.theme().transparent);
 
         v_flex()
             .size_full()
@@ -445,47 +448,68 @@ impl gpui::Render for WebSendPage {
                 h_flex()
                     .w_full()
                     .h(px(56.))
-                    .px(px(15.))
+                    .px(px(16.))
                     .items_center()
-                    .child(
-                        Button::new("web-send-back")
-                            .ghost()
-                            .child(Icon::default().path("icons/arrow-left.svg").with_size(Size::Small))
-                            .on_click(cx.listener(|this, _event, window, cx| {
-                                if let Some(root) = &this.root {
-                                    let _ = root.update(cx, |this, cx| {
-                                        this.go_back_or_navigate(routes::HOME, cx);
-                                    });
-                                } else {
-                                    if let Some(entry) =
-                                        crate::ui::router_history::RouterHistoryState::global_mut(cx)
-                                            .history
-                                            .go_back()
-                                    {
-                                        RouterState::global_mut(cx).location.pathname = entry.pathname;
-                                    } else {
-                                        RouterState::global_mut(cx).location.pathname =
-                                            routes::HOME.into();
-                                    }
-                                }
-                                window.refresh();
-                            })),
-                    )
+                    .border_b_1()
+                    .border_color(cx.theme().border)
                     .child(
                         h_flex()
-                            .flex_1()
-                            .justify_center()
+                            .items_center()
+                            .gap(px(8.))
+                            .child(
+                                Button::new("web-send-back")
+                                    .ghost()
+                                    .custom(nav_button_variant)
+                                    .h(px(36.))
+                                    .w(px(36.))
+                                    .p(px(0.))
+                                    .rounded_md()
+                                    .child(
+                                        Icon::default()
+                                            .path("icons/arrow-left.svg")
+                                            .with_size(Size::Small),
+                                    )
+                                    .on_click(cx.listener(|this, _event, window, cx| {
+                                        if let Some(root) = &this.root {
+                                            let _ = root.update(cx, |this, cx| {
+                                                this.go_back_or_navigate(routes::HOME, cx);
+                                            });
+                                        } else {
+                                            if let Some(entry) =
+                                                crate::ui::router_history::RouterHistoryState::global_mut(cx)
+                                                    .history
+                                                    .go_back()
+                                            {
+                                                RouterState::global_mut(cx).location.pathname = entry.pathname;
+                                            } else {
+                                                RouterState::global_mut(cx).location.pathname =
+                                                    routes::HOME.into();
+                                            }
+                                        }
+                                        window.refresh();
+                                    })),
+                            )
                             .child(
                                 div()
-                                    .text_base()
+                                    .text_lg()
                                     .font_semibold()
                                     .text_color(cx.theme().foreground)
                                     .child("分享链接"),
                             ),
                     )
+                    .child(div().flex_1())
                     .child(
                         Button::new("web-send-refresh-link")
                             .ghost()
+                            .custom(
+                                ButtonCustomVariant::new(cx)
+                                    .hover(cx.theme().transparent)
+                                    .active(cx.theme().transparent),
+                            )
+                            .h(px(36.))
+                            .w(px(36.))
+                            .p(px(0.))
+                            .rounded_md()
                             .on_click(cx.listener(|this, _event, _window, cx| {
                                 this.regenerate_share_link(cx);
                             }))

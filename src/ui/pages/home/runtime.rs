@@ -288,6 +288,29 @@ impl HomePage {
         }
     }
 
+    pub(super) fn trigger_server_refresh_feedback(&mut self, cx: &mut Context<Self>) {
+        self.server_refreshing = true;
+        self.server_refresh_op_id = self.server_refresh_op_id.wrapping_add(1);
+        let refresh_op_id = self.server_refresh_op_id;
+        cx.notify();
+
+        let handle = self.app_state.read(cx).tokio_handle.clone();
+        let wait = handle.spawn(async move {
+            tokio::time::sleep(Duration::from_millis(900)).await;
+        });
+
+        cx.spawn(async move |this, cx| {
+            let _ = wait.await;
+            let _ = this.update(cx, |this, cx| {
+                if this.server_refresh_op_id == refresh_op_id {
+                    this.server_refreshing = false;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
     pub(super) fn stop_local_server(&mut self, cx: &mut Context<Self>) {
         let server_entity = self.app_state.read(cx).server.clone();
         server_entity.update(cx, |server, _cx| {

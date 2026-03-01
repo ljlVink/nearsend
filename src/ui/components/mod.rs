@@ -5,6 +5,5 @@ pub mod device_placeholder;
 pub mod logo;
 pub mod opacity_slideshow;
 pub mod progress_bar;
-pub mod rotating_widget;
 pub mod switch;
 pub mod transfer_item;

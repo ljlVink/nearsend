@@ -4,6 +4,7 @@ pub const HOME: &str = "/";
 pub const SETTINGS_ABOUT: &str = "/settings/about";
 pub const SETTINGS_DONATE: &str = "/settings/donate";
 pub const SETTINGS_OPEN_SOURCE_LICENSES: &str = "/settings/open-source-licenses";
+pub const SETTINGS_CHANGELOG: &str = "/settings/changelog";
 pub const RECEIVE_HISTORY: &str = "/receive/history";
 pub const RECEIVE_INCOMING: &str = "/receive/incoming";
 pub const TRANSFER_PROGRESS: &str = "/transfer/progress";

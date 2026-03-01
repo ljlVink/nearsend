@@ -4,7 +4,10 @@ use super::HomePage;
 use crate::ui::components::{logo::Logo, switch::Switch};
 use crate::ui::routes;
 use crate::ui::theme::spacing;
-use gpui::{div, prelude::*, px, AnyElement, Context, Entity, Window};
+use gpui::{
+    div, percentage, prelude::*, px, Animation, AnimationExt as _, AnyElement, Context, Entity,
+    Transformation, Window,
+};
 use gpui_component::scroll::ScrollableElement as _;
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -12,6 +15,7 @@ use gpui_component::{
     select::{Select, SelectState},
     v_flex, ActiveTheme as _, Icon, Sizable as _, Size, StyledExt as _,
 };
+use std::time::Duration;
 
 // ---------------------------------------------------------------------------
 // Reusable helpers
@@ -142,6 +146,24 @@ fn render_clickable_entry(
         .into_any_element()
 }
 
+fn render_refresh_icon(spinning: bool, animations: bool, cx: &mut Context<HomePage>) -> AnyElement {
+    let icon = Icon::default()
+        .path("icons/refresh.svg")
+        .with_size(Size::Small)
+        .text_color(cx.theme().foreground);
+
+    if spinning && animations {
+        icon.with_animation(
+            "settings-server-refresh-spin",
+            Animation::new(Duration::from_millis(900)).repeat(),
+            |this, delta| this.transform(Transformation::rotate(percentage(delta))),
+        )
+        .into_any_element()
+    } else {
+        icon.into_any_element()
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Main render
 // ---------------------------------------------------------------------------
@@ -177,8 +199,10 @@ pub fn render_settings_content(
     };
 
     let advanced = app.settings_state.advanced;
+    let animations = app.settings_state.animations;
     let server_running = app.settings_state.server_running;
     let server_paused = app.settings_state.server_paused;
+    let server_refreshing = app.server_refreshing;
     let server_alias = app.settings_state.server_alias.clone();
     let server_port = app.settings_state.server_port;
     let share_link_auto_accept = app.settings_state.share_via_link_auto_accept;
@@ -328,6 +352,7 @@ pub fn render_settings_content(
                                         .py(px(6.))
                                         .rounded_md()
                                         .on_click(cx.listener(|this, _ev, _win, cx| {
+                                            this.trigger_server_refresh_feedback(cx);
                                             if this.settings_state.server_paused {
                                                 this.resume_local_server(cx);
                                             } else if this.settings_state.server_running {
@@ -346,12 +371,11 @@ pub fn render_settings_content(
                                             )
                                         })
                                         .when(!server_paused, |this| {
-                                            this.child(
-                                                Icon::default()
-                                                    .path("icons/refresh.svg")
-                                                    .with_size(Size::Small)
-                                                    .text_color(cx.theme().foreground),
-                                            )
+                                            this.child(render_refresh_icon(
+                                                server_refreshing,
+                                                animations,
+                                                cx,
+                                            ))
                                         }),
                                 )
                                 .child(
@@ -426,12 +450,12 @@ pub fn render_settings_content(
                 this.open_discovery_timeout_dialog(window, cx);
             },
         );
-        let discovery_target_subnets_label = if app.settings_state.discovery_target_subnets.is_empty()
-        {
-            "未设置".to_string()
-        } else {
-            format!("{} 条", app.settings_state.discovery_target_subnets.len())
-        };
+        let discovery_target_subnets_label =
+            if app.settings_state.discovery_target_subnets.is_empty() {
+                "未设置".to_string()
+            } else {
+                format!("{} 条", app.settings_state.discovery_target_subnets.len())
+            };
         let discovery_target_subnets_entry = render_clickable_entry(
             "发现目标网段",
             &discovery_target_subnets_label,
@@ -570,8 +594,8 @@ pub fn render_settings_content(
         .child(
             Button::new("changelog")
                 .ghost()
-                .on_click(cx.listener(|_this, _ev, _win, _cx| {
-                    log::info!("Changelog clicked");
+                .on_click(cx.listener(|this, _ev, _win, cx| {
+                    this.navigate_to(routes::SETTINGS_CHANGELOG, cx);
                 }))
                 .child("更新日志"),
         )

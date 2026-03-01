@@ -7,8 +7,8 @@ use crate::state::{
     transfer_state::TransferState,
 };
 use crate::ui::pages::{
-    AboutPage, DonatePage, HistoryPage, HomePage, OpenSourceLicensesPage, ProgressPage,
-    ReceiveIncomingPage, SelectedFilesPage, WebSendPage,
+    AboutPage, ChangelogPage, DonatePage, HistoryPage, HomePage, OpenSourceLicensesPage,
+    ProgressPage, ReceiveIncomingPage, SelectedFilesPage, WebSendPage,
 };
 use crate::ui::router_history::{HistoryEntry, RouterHistoryState};
 use crate::ui::routes;
@@ -24,6 +24,7 @@ pub struct AppRoot {
     home_entity: Entity<HomePage>,
     history_entity: Entity<HistoryPage>,
     about_entity: Entity<AboutPage>,
+    changelog_entity: Entity<ChangelogPage>,
     donate_entity: Entity<DonatePage>,
     open_source_licenses_entity: Entity<OpenSourceLicensesPage>,
     progress_entity: Entity<ProgressPage>,
@@ -69,6 +70,7 @@ impl AppRoot {
                 .with_receive_inbox_state(receive_inbox_state.clone())
         });
         let about_entity = cx.new(|_| AboutPage::new(root.clone()));
+        let changelog_entity = cx.new(|_| ChangelogPage::new(root.clone()));
         let donate_entity = cx.new(|_| DonatePage::new(root.clone()));
         let open_source_licenses_entity = cx.new(|_| OpenSourceLicensesPage::new(root.clone()));
         let progress_entity = cx.new(|_| {
@@ -97,6 +99,7 @@ impl AppRoot {
             home_entity,
             history_entity,
             about_entity,
+            changelog_entity,
             donate_entity,
             open_source_licenses_entity,
             progress_entity,
@@ -235,6 +238,7 @@ impl gpui::Render for AppRoot {
         let home_entity = self.home_entity.clone();
         let history_entity = self.history_entity.clone();
         let about_entity = self.about_entity.clone();
+        let changelog_entity = self.changelog_entity.clone();
         let donate_entity = self.donate_entity.clone();
         let open_source_licenses_entity = self.open_source_licenses_entity.clone();
         let progress_entity = self.progress_entity.clone();
@@ -259,6 +263,14 @@ impl gpui::Render for AppRoot {
                     .element({
                         let about_entity = about_entity.clone();
                         move |_window, _cx| about_entity.clone().into_any_element()
+                    }),
+            )
+            .child(
+                Route::new()
+                    .path(routes::to_pattern(routes::SETTINGS_CHANGELOG))
+                    .element({
+                        let changelog_entity = changelog_entity.clone();
+                        move |_window, _cx| changelog_entity.clone().into_any_element()
                     }),
             )
             .child(

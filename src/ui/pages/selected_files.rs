@@ -461,6 +461,9 @@ impl gpui::Render for SelectedFilesPage {
         let total_size = self.send_selection_state.read(cx).total_size();
         let file_count = files.len();
         let send_state = self.send_selection_state.clone();
+        let back_button_variant = ButtonCustomVariant::new(cx)
+            .hover(cx.theme().transparent)
+            .active(cx.theme().transparent);
 
         v_flex()
             .size_full()
@@ -469,49 +472,58 @@ impl gpui::Render for SelectedFilesPage {
                 h_flex()
                     .w_full()
                     .h(px(56.))
-                    .px(px(15.))
+                    .px(px(16.))
                     .items_center()
+                    .border_b_1()
+                    .border_color(cx.theme().border)
                     .child(
-                        Button::new("files-back")
-                            .ghost()
-                            .on_click(cx.listener(|this, _event, window, cx| {
-                                if let Some(root) = &this.root {
-                                    let _ = root.update(cx, |this, cx| {
-                                        this.go_back_or_navigate(routes::HOME, cx);
-                                    });
-                                } else {
-                                    if let Some(entry) =
-                                        crate::ui::router_history::RouterHistoryState::global_mut(
-                                            cx,
-                                        )
-                                        .history
-                                        .go_back()
-                                    {
-                                        RouterState::global_mut(cx).location.pathname =
-                                            entry.pathname;
-                                    } else {
-                                        RouterState::global_mut(cx).location.pathname =
-                                            routes::HOME.into();
-                                    }
-                                }
-                                window.refresh();
-                            }))
+                        h_flex()
+                            .items_center()
+                            .gap(px(8.))
                             .child(
-                                Icon::default()
-                                    .path("icons/arrow-left.svg")
-                                    .with_size(Size::Small),
+                                Button::new("files-back")
+                                    .ghost()
+                                    .custom(back_button_variant)
+                                    .h(px(36.))
+                                    .w(px(36.))
+                                    .p(px(0.))
+                                    .rounded_md()
+                                    .on_click(cx.listener(|this, _event, window, cx| {
+                                        if let Some(root) = &this.root {
+                                            let _ = root.update(cx, |this, cx| {
+                                                this.go_back_or_navigate(routes::HOME, cx);
+                                            });
+                                        } else {
+                                            if let Some(entry) =
+                                                crate::ui::router_history::RouterHistoryState::global_mut(
+                                                    cx,
+                                                )
+                                                .history
+                                                .go_back()
+                                            {
+                                                RouterState::global_mut(cx).location.pathname =
+                                                    entry.pathname;
+                                            } else {
+                                                RouterState::global_mut(cx).location.pathname =
+                                                    routes::HOME.into();
+                                            }
+                                        }
+                                        window.refresh();
+                                    }))
+                                    .child(
+                                        Icon::default()
+                                            .path("icons/arrow-left.svg")
+                                            .with_size(Size::Small),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .text_lg()
+                                    .font_semibold()
+                                    .text_color(cx.theme().foreground)
+                                    .child("选择"),
                             ),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .text_center()
-                            .text_base()
-                            .font_semibold()
-                            .text_color(cx.theme().foreground)
-                            .child("选择"),
-                    )
-                    .child(div().w(px(40.))),
+                    ),
             )
             .child(
                 div().flex_1().w_full().overflow_y_scrollbar().child(

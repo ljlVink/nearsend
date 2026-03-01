@@ -65,6 +65,9 @@ impl gpui::Render for HistoryPage {
         let history_state = self.history_state.clone();
         let receive_inbox_state = self.receive_inbox_state.clone();
         let root = self.root.clone();
+        let back_button_variant = ButtonCustomVariant::new(cx)
+            .hover(cx.theme().transparent)
+            .active(cx.theme().transparent);
 
         v_flex()
             .size_full()
@@ -74,52 +77,56 @@ impl gpui::Render for HistoryPage {
                 h_flex()
                     .w_full()
                     .h(px(56.))
-                    .px(px(15.))
+                    .px(px(16.))
                     .items_center()
+                    .border_b_1()
+                    .border_color(cx.theme().border)
                     .child(
-                        Button::new("history-back")
-                            .ghost()
-                            .custom(
-                                ButtonCustomVariant::new(cx)
-                                    .hover(cx.theme().transparent)
-                                    .active(cx.theme().transparent),
+                        h_flex()
+                            .items_center()
+                            .gap(px(8.))
+                            .child(
+                                Button::new("history-back")
+                                    .ghost()
+                                    .custom(back_button_variant)
+                                    .h(px(36.))
+                                    .w(px(36.))
+                                    .p(px(0.))
+                                    .rounded_md()
+                                    .child(
+                                        Icon::default()
+                                            .path("icons/arrow-left.svg")
+                                            .with_size(Size::Small),
+                                    )
+                                    .on_click(cx.listener(|this, _event, window, cx| {
+                                        if let Some(root) = &this.root {
+                                            let _ = root.update(cx, |this, cx| {
+                                                this.go_back_or_navigate(routes::HOME, cx);
+                                            });
+                                        } else {
+                                            // Fallback if no root
+                                            if let Some(entry) =
+                                                crate::ui::router_history::RouterHistoryState::global_mut(cx)
+                                                    .history
+                                                    .go_back()
+                                            {
+                                                RouterState::global_mut(cx).location.pathname = entry.pathname;
+                                            } else {
+                                                RouterState::global_mut(cx).location.pathname =
+                                                    routes::HOME.into();
+                                            }
+                                        }
+                                        window.refresh();
+                                    })),
                             )
                             .child(
-                                Icon::default()
-                                    .path("icons/arrow-left.svg")
-                                    .with_size(Size::Large),
-                            )
-                            .on_click(cx.listener(|this, _event, window, cx| {
-                                if let Some(root) = &this.root {
-                                    let _ = root.update(cx, |this, cx| {
-                                        this.go_back_or_navigate(routes::HOME, cx);
-                                    });
-                                } else {
-                                    // Fallback if no root
-                                    if let Some(entry) =
-                                        crate::ui::router_history::RouterHistoryState::global_mut(cx)
-                                            .history
-                                            .go_back()
-                                    {
-                                        RouterState::global_mut(cx).location.pathname = entry.pathname;
-                                    } else {
-                                        RouterState::global_mut(cx).location.pathname =
-                                            routes::HOME.into();
-                                    }
-                                }
-                                window.refresh();
-                            })),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .text_center()
-                            .text_base()
-                            .font_bold()
-                            .text_color(cx.theme().foreground)
-                            .child("历史"),
-                    )
-                    .child(div().w(px(44.))),
+                                div()
+                                    .text_lg()
+                                    .font_semibold()
+                                    .text_color(cx.theme().foreground)
+                                    .child("历史"),
+                            ),
+                    ),
             )
             // Content
             .child(
@@ -133,8 +140,9 @@ impl gpui::Render for HistoryPage {
                             .max_w(px(960.))
                             .mx_auto()
                             .px(px(15.))
-                            .py(px(10.))
-                            .gap(spacing::LG)
+                            .pt(px(8.))
+                            .pb(px(10.))
+                            .gap(px(8.))
                             .child(
                                 h_flex()
                                     .gap(px(10.))
@@ -196,7 +204,6 @@ impl gpui::Render for HistoryPage {
                                             ),
                                     ),
                             )
-                            .child(div().h(px(4.)))
                             .children(entries.into_iter().map(|entry| {
                                 let entry_id = entry.id.clone();
                                 let menu_open = self.open_menu_entry.as_ref() == Some(&entry_id);

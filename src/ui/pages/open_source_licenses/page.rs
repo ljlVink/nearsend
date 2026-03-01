@@ -146,35 +146,43 @@ impl gpui::Render for OpenSourceLicensesPage {
                 h_flex()
                     .w_full()
                     .h(px(56.))
-                    .px(px(15.))
+                    .px(px(16.))
                     .items_center()
+                    .border_b_1()
+                    .border_color(cx.theme().border)
                     .child(
-                        Button::new("open-source-licenses-back")
-                            .ghost()
-                            .custom(back_button_variant)
+                        h_flex()
+                            .items_center()
+                            .gap(px(8.))
                             .child(
-                                Icon::default()
-                                    .path("icons/arrow-left.svg")
-                                    .with_size(Size::Large),
+                                Button::new("open-source-licenses-back")
+                                    .ghost()
+                                    .custom(back_button_variant)
+                                    .h(px(36.))
+                                    .w(px(36.))
+                                    .p(px(0.))
+                                    .rounded_md()
+                                    .child(
+                                        Icon::default()
+                                            .path("icons/arrow-left.svg")
+                                            .with_size(Size::Small),
+                                    )
+                                    .on_click(cx.listener(|this, _event, _window, cx| {
+                                        if let Some(root) = &this.root {
+                                            let _ = root.update(cx, |root, cx| {
+                                                root.go_back_or_navigate(routes::HOME, cx);
+                                            });
+                                        }
+                                    })),
                             )
-                            .on_click(cx.listener(|this, _event, _window, cx| {
-                                if let Some(root) = &this.root {
-                                    let _ = root.update(cx, |root, cx| {
-                                        root.go_back_or_navigate(routes::HOME, cx);
-                                    });
-                                }
-                            })),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .text_center()
-                            .text_base()
-                            .font_bold()
-                            .text_color(cx.theme().foreground)
-                            .child("开源协议"),
-                    )
-                    .child(div().w(px(44.))),
+                            .child(
+                                div()
+                                    .text_lg()
+                                    .font_semibold()
+                                    .text_color(cx.theme().foreground)
+                                    .child("开源协议"),
+                            ),
+                    ),
             )
             .child(
                 div().flex_1().w_full().overflow_y_scrollbar().child(

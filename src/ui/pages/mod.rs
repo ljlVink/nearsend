@@ -1,4 +1,5 @@
 pub mod about;
+pub mod changelog;
 pub mod donate;
 pub mod history;
 pub mod home;
@@ -10,6 +11,7 @@ pub mod selected_files;
 pub mod web_send;
 
 pub use about::AboutPage;
+pub use changelog::ChangelogPage;
 pub use donate::DonatePage;
 pub use history::HistoryPage;
 #[allow(unused_imports)]

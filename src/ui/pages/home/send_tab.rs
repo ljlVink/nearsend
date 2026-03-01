@@ -3,12 +3,15 @@
 use super::HomePage;
 use crate::ui::components::{
     device_card::DeviceCard, device_placeholder::DevicePlaceholder,
-    opacity_slideshow::OpacitySlideshow, rotating_widget::RotatingWidget,
+    opacity_slideshow::OpacitySlideshow,
 };
 use crate::ui::routes;
 use crate::ui::theme::spacing;
 use crate::ui::utils::format_file_size;
-use gpui::{div, prelude::*, px, AnyElement, Context, ScrollHandle, Window};
+use gpui::{
+    div, percentage, prelude::*, px, Animation, AnimationExt as _, AnyElement, Context,
+    ScrollHandle, Transformation, Window,
+};
 use gpui_component::scroll::ScrollableElement as _;
 use gpui_component::{
     button::{Button, ButtonCustomVariant, ButtonVariants as _},
@@ -16,6 +19,7 @@ use gpui_component::{
     popover::Popover,
     v_flex, ActiveTheme as _, Anchor, Icon, Sizable as _, Size, StyledExt as _,
 };
+use std::time::Duration;
 
 /// Button width/height for content type buttons (matches BigButton constants).
 const CONTENT_BTN_WIDTH: f32 = 90.0;
@@ -79,10 +83,27 @@ fn render_content_type_button(
 fn render_action_button(
     id: impl Into<gpui::ElementId>,
     icon_path: impl Into<gpui::SharedString>,
+    spinning: bool,
+    animations: bool,
     cx: &mut Context<HomePage>,
     on_click: impl Fn(&mut HomePage, &mut Window, &mut Context<HomePage>) + 'static,
 ) -> AnyElement {
     let icon_path = icon_path.into();
+    let icon = Icon::default()
+        .path(icon_path.clone())
+        .with_size(Size::Small);
+
+    let icon_element = if spinning && animations {
+        icon.with_animation(
+            "send-action-refresh-spin",
+            Animation::new(Duration::from_millis(900)).repeat(),
+            |this, delta| this.transform(Transformation::rotate(percentage(delta))),
+        )
+        .into_any_element()
+    } else {
+        icon.into_any_element()
+    };
+
     div()
         .id(id)
         .cursor_default()
@@ -104,7 +125,7 @@ fn render_action_button(
                 .flex()
                 .items_center()
                 .justify_center()
-                .child(Icon::default().path(icon_path).with_size(Size::Small)),
+                .child(icon_element),
         )
         .on_click(cx.listener(move |this, _event, window, cx| {
             on_click(this, window, cx);
@@ -396,30 +417,23 @@ pub fn render_send_content(
                                         h_flex()
                                             .gap(spacing::SM)
                                             .items_center()
-                                            // Scan button (wrapped in RotatingWidget)
-                                            .child(
-                                                div()
-                                                    .relative()
-                                                    .child(
-                                                        RotatingWidget::new(
-                                                            render_action_button(
-                                                                "send-scan",
-                                                                "icons/refresh.svg",
-                                                                cx,
-                                                                |this, _window, cx| {
-                                                                    this.start_discovery_scan(true, cx);
-                                                                },
-                                                            ),
-                                                        )
-                                                        .spinning(scanning && animations)
-                                                        .reverse(true)
-                                                        .duration(2),
-                                                    ),
-                                            )
+                                            // Scan button
+                                            .child(render_action_button(
+                                                "send-scan",
+                                                "icons/refresh.svg",
+                                                scanning,
+                                                animations,
+                                                cx,
+                                                |this, _window, cx| {
+                                                    this.start_discovery_scan(true, cx);
+                                                },
+                                            ))
                                             // Manual address button
                                             .child(render_action_button(
                                                 "send-manual",
                                                 "icons/target.svg",
+                                                false,
+                                                animations,
                                                 cx,
                                                 |this, window, cx| {
                                                     if !this.ensure_has_selected_files(window, cx) {
@@ -432,6 +446,8 @@ pub fn render_send_content(
                                             .child(render_action_button(
                                                 "send-favorites",
                                                 "icons/heart.svg",
+                                                false,
+                                                animations,
                                                 cx,
                                                 |this, window, cx| {
                                                     this.open_favorites_dialog(window, cx);

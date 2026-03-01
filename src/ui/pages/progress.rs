@@ -10,7 +10,7 @@ use crate::ui::theme::spacing;
 use gpui::{div, prelude::*, px, Context, Entity, Window};
 use gpui_component::scroll::ScrollableElement as _;
 use gpui_component::{
-    button::{Button, ButtonVariants as _},
+    button::{Button, ButtonCustomVariant, ButtonVariants as _},
     h_flex,
     progress::Progress,
     v_flex, ActiveTheme as _, Icon, Sizable as _, Size, StyledExt as _,
@@ -95,45 +95,54 @@ impl gpui::Render for ProgressPage {
                 h_flex()
                     .w_full()
                     .h(px(56.))
-                    .px(px(15.))
+                    .px(px(16.))
                     .items_center()
-                    .child(
-                        Button::new("progress-back")
-                            .ghost()
-                            .child(
-                                Icon::default()
-                                    .path("icons/arrow-left.svg")
-                                    .with_size(Size::Small),
-                            )
-                            .on_click(cx.listener(|this, _event, window, cx| {
-                                if let Some(root) = &this.root {
-                                    let _ = root.update(cx, |this, cx| {
-                                        this.go_back_or_navigate(routes::HOME, cx);
-                                    });
-                                } else {
-                                    if let Some(entry) =
-                                        crate::ui::router_history::RouterHistoryState::global_mut(
-                                            cx,
-                                        )
-                                        .history
-                                        .go_back()
-                                    {
-                                        RouterState::global_mut(cx).location.pathname =
-                                            entry.pathname;
-                                    } else {
-                                        RouterState::global_mut(cx).location.pathname =
-                                            routes::HOME.into();
-                                    }
-                                }
-                                window.refresh();
-                            })),
-                    )
+                    .border_b_1()
+                    .border_color(cx.theme().border)
                     .child(
                         h_flex()
-                            .flex_1()
-                            .justify_center()
-                            .gap(px(8.))
                             .items_center()
+                            .gap(px(8.))
+                            .child(
+                                Button::new("progress-back")
+                                    .ghost()
+                                    .custom(
+                                        ButtonCustomVariant::new(cx)
+                                            .hover(cx.theme().transparent)
+                                            .active(cx.theme().transparent),
+                                    )
+                                    .h(px(36.))
+                                    .w(px(36.))
+                                    .p(px(0.))
+                                    .rounded_md()
+                                    .child(
+                                        Icon::default()
+                                            .path("icons/arrow-left.svg")
+                                            .with_size(Size::Small),
+                                    )
+                                    .on_click(cx.listener(|this, _event, window, cx| {
+                                        if let Some(root) = &this.root {
+                                            let _ = root.update(cx, |this, cx| {
+                                                this.go_back_or_navigate(routes::HOME, cx);
+                                            });
+                                        } else {
+                                            if let Some(entry) =
+                                                crate::ui::router_history::RouterHistoryState::global_mut(
+                                                    cx,
+                                                )
+                                                .history
+                                                .go_back()
+                                            {
+                                                RouterState::global_mut(cx).location.pathname =
+                                                    entry.pathname;
+                                            } else {
+                                                RouterState::global_mut(cx).location.pathname =
+                                                    routes::HOME.into();
+                                            }
+                                        }
+                                        window.refresh();
+                                    })),
+                            )
                             .child(
                                 Icon::default()
                                     .path(direction_icon)
@@ -142,18 +151,28 @@ impl gpui::Render for ProgressPage {
                             )
                             .child(
                                 div()
-                                    .text_base()
+                                    .text_lg()
                                     .font_semibold()
                                     .text_color(cx.theme().foreground)
                                     .child(direction_label),
                             ),
                     )
+                    .child(div().flex_1())
                     .child(
                         if self.direction == TransferDirection::Send
                             && status != TransferStatus::InProgress
                         {
                             Button::new("progress-retry")
                                 .ghost()
+                                .custom(
+                                    ButtonCustomVariant::new(cx)
+                                        .hover(cx.theme().transparent)
+                                        .active(cx.theme().transparent),
+                                )
+                                .h(px(36.))
+                                .w(px(36.))
+                                .p(px(0.))
+                                .rounded_md()
                                 .on_click(cx.listener(|_this, _event, window, _cx| {
                                     crate::core::send_retry_events::request_send_retry();
                                     window.refresh();
@@ -165,7 +184,7 @@ impl gpui::Render for ProgressPage {
                                 )
                                 .into_any_element()
                         } else {
-                            div().w(px(40.)).into_any_element()
+                            div().w(px(36.)).h(px(36.)).into_any_element()
                         },
                     ),
             )
