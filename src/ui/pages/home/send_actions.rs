@@ -602,6 +602,8 @@ impl HomePage {
                                 .px(px(10.))
                                 .py(px(8.))
                                 .bg(_cx.theme().muted)
+                                .overflow_hidden()
+                                .truncate()
                                 .text_sm()
                                 .child(link.clone()),
                         )

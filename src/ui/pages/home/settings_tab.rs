@@ -139,7 +139,13 @@ fn render_clickable_entry(
                             .on_click(cx.listener(move |this, _ev, window, cx| {
                                 on_click(this, window, cx);
                             }))
-                            .child(button_text.to_string()),
+                            .child(
+                                div()
+                                    .w_full()
+                                    .overflow_hidden()
+                                    .truncate()
+                                    .child(button_text.to_string()),
+                            ),
                     ),
                 ),
         )

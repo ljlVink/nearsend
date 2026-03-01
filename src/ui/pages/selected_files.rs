@@ -604,9 +604,13 @@ impl gpui::Render for SelectedFilesPage {
                                         .child(
                                             v_flex()
                                                 .flex_1()
+                                                .min_w(px(0.))
                                                 .gap(px(2.))
                                                 .child(
                                                     div()
+                                                        .w_full()
+                                                        .overflow_hidden()
+                                                        .truncate()
                                                         .text_base()
                                                         .text_color(cx.theme().foreground)
                                                         .child(format!("\"{}\"", file_name)),

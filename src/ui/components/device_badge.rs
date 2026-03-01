@@ -49,6 +49,7 @@ impl gpui::RenderOnce for DeviceBadge {
             .unwrap_or_else(|| cx.theme().border.into());
 
         div()
+            .max_w(px(140.))
             .px(px(10.))
             .py(px(4.))
             .bg(bg_color)
@@ -57,6 +58,9 @@ impl gpui::RenderOnce for DeviceBadge {
             .border_color(border_color)
             .child(
                 div()
+                    .w_full()
+                    .overflow_hidden()
+                    .truncate()
                     .text_xs()
                     .font_semibold()
                     .text_color(fg_color)

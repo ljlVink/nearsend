@@ -151,6 +151,10 @@ impl gpui::Render for ReceiveIncomingPage {
                             .gap(px(12.))
                             .child(
                                 div()
+                                    .max_w(px(760.))
+                                    .w_full()
+                                    .overflow_hidden()
+                                    .truncate()
                                     .text_3xl()
                                     .font_weight(gpui::FontWeight::BLACK)
                                     .text_color(cx.theme().foreground)
@@ -168,6 +172,9 @@ impl gpui::Render for ReceiveIncomingPage {
                                             .bg(cx.theme().primary.opacity(0.2))
                                             .child(
                                                 div()
+                                                    .max_w(px(200.))
+                                                    .overflow_hidden()
+                                                    .truncate()
                                                     .text_sm()
                                                     .font_weight(gpui::FontWeight::BLACK)
                                                     .text_color(cx.theme().primary)
@@ -182,6 +189,9 @@ impl gpui::Render for ReceiveIncomingPage {
                                             .bg(cx.theme().primary.opacity(0.2))
                                             .child(
                                                 div()
+                                                    .max_w(px(260.))
+                                                    .overflow_hidden()
+                                                    .truncate()
                                                     .text_sm()
                                                     .font_weight(gpui::FontWeight::BLACK)
                                                     .text_color(cx.theme().primary)
@@ -192,6 +202,10 @@ impl gpui::Render for ReceiveIncomingPage {
                             .child(div().h(px(18.)))
                             .child(
                                 div()
+                                    .max_w(px(760.))
+                                    .w_full()
+                                    .overflow_hidden()
+                                    .truncate()
                                     .text_2xl()
                                     .text_color(cx.theme().foreground)
                                     .child(subtitle),

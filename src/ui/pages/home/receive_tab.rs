@@ -128,6 +128,9 @@ pub fn render_receive_content(
                                             v_flex().gap(px(2.)).items_start().children(
                                                 info_ips.iter().map(|ip| {
                                                     div()
+                                                        .w_full()
+                                                        .overflow_hidden()
+                                                        .truncate()
                                                         .text_sm()
                                                         .text_color(cx.theme().foreground)
                                                         .child(ip.clone())
@@ -170,7 +173,10 @@ pub fn render_receive_content(
                             )
                             .child(
                                 div()
+                                    .w_full()
                                     .max_w(px(520.))
+                                    .overflow_hidden()
+                                    .truncate()
                                     .text_3xl()
                                     .font_bold()
                                     .text_color(cx.theme().foreground)
@@ -456,6 +462,7 @@ fn build_alert_dialog_footer(id_prefix: &str, ok_text: &str) -> DialogFooter {
 fn render_info_row(label: &str, value: &str, cx: &gpui::App) -> impl IntoElement {
     h_flex()
         .items_start()
+        .w_full()
         .child(
             div()
                 .w(px(60.))
@@ -465,6 +472,10 @@ fn render_info_row(label: &str, value: &str, cx: &gpui::App) -> impl IntoElement
         )
         .child(
             div()
+                .flex_1()
+                .min_w(px(0.))
+                .overflow_hidden()
+                .truncate()
                 .text_sm()
                 .text_color(cx.theme().foreground)
                 .child(value.to_string()),

@@ -85,9 +85,13 @@ impl gpui::Render for ReceiveDialog {
                     )
                     .child(
                         v_flex()
+                            .min_w(px(0.))
                             .gap(px(2.))
                             .child(
                                 div()
+                                    .w_full()
+                                    .overflow_hidden()
+                                    .truncate()
                                     .text_lg()
                                     .font_semibold()
                                     .text_color(cx.theme().foreground)
@@ -96,6 +100,9 @@ impl gpui::Render for ReceiveDialog {
                             .when(!sender_model.is_empty(), |this| {
                                 this.child(
                                     div()
+                                        .w_full()
+                                        .overflow_hidden()
+                                        .truncate()
                                         .text_sm()
                                         .text_color(cx.theme().muted_foreground)
                                         .child(sender_model),
@@ -175,8 +182,12 @@ impl gpui::Render for ReceiveDialog {
                                             .child(
                                                 v_flex()
                                                     .flex_1()
+                                                    .min_w(px(0.))
                                                     .child(
                                                         div()
+                                                            .w_full()
+                                                            .overflow_hidden()
+                                                            .truncate()
                                                             .text_sm()
                                                             .text_color(cx.theme().foreground)
                                                             .child(file_name),

@@ -716,6 +716,10 @@ impl gpui::Render for WebSendPage {
                                                     .items_center()
                                                     .child(
                                                         div()
+                                                            .flex_1()
+                                                            .min_w(px(0.))
+                                                            .overflow_hidden()
+                                                            .truncate()
                                                             .text_sm()
                                                             .text_color(cx.theme().muted_foreground)
                                                             .child(format!("当前 PIN：{}", pin)),

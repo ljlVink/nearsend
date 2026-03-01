@@ -653,14 +653,56 @@ fn open_entry_info_dialog(
                 v_flex()
                     .w_full()
                     .gap(px(8.))
-                    .child(div().text_sm().child(format!("名称: {}", title)))
-                    .child(div().text_sm().child(format!("大小: {}", file_size)))
-                    .child(div().text_sm().child(format!("来源: {}", sender)))
-                    .child(div().text_sm().child(format!("时间: {}", timestamp)))
+                    .child(
+                        div()
+                            .w_full()
+                            .overflow_hidden()
+                            .truncate()
+                            .text_sm()
+                            .child(format!("名称: {}", title)),
+                    )
+                    .child(
+                        div()
+                            .w_full()
+                            .overflow_hidden()
+                            .truncate()
+                            .text_sm()
+                            .child(format!("大小: {}", file_size)),
+                    )
+                    .child(
+                        div()
+                            .w_full()
+                            .overflow_hidden()
+                            .truncate()
+                            .text_sm()
+                            .child(format!("来源: {}", sender)),
+                    )
+                    .child(
+                        div()
+                            .w_full()
+                            .overflow_hidden()
+                            .truncate()
+                            .text_sm()
+                            .child(format!("时间: {}", timestamp)),
+                    )
                     .when(!file_uri.is_empty(), |this| {
-                        this.child(div().text_sm().child(format!("URI: {}", file_uri)))
+                        this.child(
+                            div()
+                                .w_full()
+                                .overflow_hidden()
+                                .truncate()
+                                .text_sm()
+                                .child(format!("URI: {}", file_uri)),
+                        )
                     })
-                    .child(div().text_sm().child(format!("路径: {}", file_path))),
+                    .child(
+                        div()
+                            .w_full()
+                            .overflow_hidden()
+                            .truncate()
+                            .text_sm()
+                            .child(format!("路径: {}", file_path)),
+                    ),
             )
             .footer(build_alert_dialog_footer("history-info", "关闭"))
             .button_props(gpui_component::dialog::DialogButtonProps::default().ok_text("关闭"))

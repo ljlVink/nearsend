@@ -52,15 +52,22 @@ impl HomePage {
                                     .child(
                                         v_flex()
                                             .flex_1()
+                                            .min_w(px(0.))
                                             .gap(px(2.))
                                             .child(
                                                 div()
+                                                    .w_full()
+                                                    .overflow_hidden()
+                                                    .truncate()
                                                     .text_sm()
                                                     .font_medium()
                                                     .child(row_alias.clone()),
                                             )
                                             .child(
                                                 div()
+                                                    .w_full()
+                                                    .overflow_hidden()
+                                                    .truncate()
                                                     .text_xs()
                                                     .text_color(_cx.theme().muted_foreground)
                                                     .child(format!("{}:{}", row_ip, row_port)),
@@ -376,6 +383,8 @@ impl HomePage {
                 .child(
                     div()
                         .w_full()
+                        .overflow_hidden()
+                        .truncate()
                         .text_sm()
                         .child(format!("确认将 \"{}\" 从收藏夹移除吗？", display_name)),
                 )
@@ -429,8 +438,22 @@ impl HomePage {
                     v_flex()
                         .w_full()
                         .gap(px(8.))
-                        .child(div().text_sm().child(format!("设备名：{}", alias_text)))
-                        .child(div().text_sm().child(format!("地址：{}:{}", ip, port)))
+                        .child(
+                            div()
+                                .w_full()
+                                .overflow_hidden()
+                                .truncate()
+                                .text_sm()
+                                .child(format!("设备名：{}", alias_text)),
+                        )
+                        .child(
+                            div()
+                                .w_full()
+                                .overflow_hidden()
+                                .truncate()
+                                .text_sm()
+                                .child(format!("地址：{}:{}", ip, port)),
+                        )
                         .child(
                             div()
                                 .text_xs()

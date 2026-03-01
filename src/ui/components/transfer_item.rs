@@ -91,9 +91,13 @@ impl gpui::RenderOnce for TransferItem {
                             .child(
                                 v_flex()
                                     .flex_1()
+                                    .min_w(px(0.))
                                     .gap(px(2.))
                                     .child(
                                         div()
+                                            .w_full()
+                                            .overflow_hidden()
+                                            .truncate()
                                             .text_sm()
                                             .font_semibold()
                                             .text_color(cx.theme().foreground)

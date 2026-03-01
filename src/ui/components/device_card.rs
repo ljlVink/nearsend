@@ -116,6 +116,9 @@ impl gpui::RenderOnce for DeviceCard {
 
         let subtitle = if let Some(ref info_text) = info {
             div()
+                .w_full()
+                .overflow_hidden()
+                .truncate()
                 .text_sm()
                 .text_color(cx.theme().muted_foreground)
                 .child(info_text.clone())
@@ -183,8 +186,12 @@ impl gpui::RenderOnce for DeviceCard {
                         v_flex()
                             .gap(px(5.))
                             .flex_1()
+                            .min_w(px(0.))
                             .child(
                                 div()
+                                    .w_full()
+                                    .overflow_hidden()
+                                    .truncate()
                                     .text_lg()
                                     .font_semibold()
                                     .text_color(cx.theme().foreground)
