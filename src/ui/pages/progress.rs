@@ -20,7 +20,7 @@ use gpui_router::RouterState;
 /// Progress page: full-screen view of ongoing transfer.
 pub struct ProgressPage {
     pub root: Option<Entity<crate::app::AppRoot>>,
-    transfer_state: Entity<TransferState>,
+    transfer_state: Option<Entity<TransferState>>,
     direction: TransferDirection,
 }
 
@@ -32,7 +32,7 @@ impl ProgressPage {
     ) -> Self {
         Self {
             root: Some(root),
-            transfer_state,
+            transfer_state: Some(transfer_state),
             direction,
         }
     }
@@ -50,10 +50,11 @@ impl gpui::Render for ProgressPage {
             TransferDirection::Receive => "icons/download.svg",
         };
 
-        let transfer = self
-            .transfer_state
-            .read(cx)
-            .snapshot_latest_by_direction(self.direction);
+        let transfer = self.transfer_state.as_ref().and_then(|transfer_state| {
+            transfer_state
+                .read(cx)
+                .snapshot_latest_by_direction(self.direction)
+        });
 
         let (progress_val, status, speed_text, file_count_text, current_file_name) =
             if let Some(ref t) = transfer {
@@ -242,8 +243,7 @@ impl gpui::Render for ProgressPage {
                                 }),
                         )
                         // Per-file list
-                        .when(transfer.is_some(), |this| {
-                            let t = transfer.as_ref().unwrap();
+                        .when_some(transfer.clone(), |this, t| {
                             this.children(t.files.iter().map(|file| {
                                 let file_transfer = TransferInfo {
                                     id: file.file_id.clone(),
@@ -322,7 +322,11 @@ impl gpui::Render for ProgressPage {
 
 impl Default for ProgressPage {
     fn default() -> Self {
-        panic!("ProgressPage requires transfer_state entity")
+        Self {
+            root: None,
+            transfer_state: None,
+            direction: TransferDirection::Send,
+        }
     }
 }
 

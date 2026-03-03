@@ -34,7 +34,7 @@ impl HomePage {
         self.persist_settings();
     }
 
-    pub(crate) fn poll_incoming_events(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn poll_incoming_events(&mut self, cx: &mut Context<Self>) {
         let events = crate::core::receive_events::drain_incoming_events();
         if events.is_empty() {
             return;
@@ -169,7 +169,7 @@ impl HomePage {
                 .update(cx, |state, _| state.clear());
             if RouterState::global(cx).location.pathname == routes::RECEIVE_INCOMING {
                 self.navigate_to(routes::HOME, cx);
-                window.refresh();
+                cx.notify();
             }
         }
 
@@ -185,7 +185,7 @@ impl HomePage {
                 routes::RECEIVE_INCOMING
             );
             self.navigate_to(routes::RECEIVE_INCOMING, cx);
-            window.refresh();
+            cx.notify();
         }
     }
 

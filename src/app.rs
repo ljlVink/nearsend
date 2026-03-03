@@ -54,7 +54,6 @@ impl AppRoot {
         let receive_inbox_state = cx.new(|_| ReceiveInboxState::default());
         let home_entity = cx.new(|_| {
             HomePage::new(
-                root.clone(),
                 app_state.clone(),
                 device_state.clone(),
                 transfer_state.clone(),
@@ -213,11 +212,21 @@ impl AppRoot {
 
 impl gpui::Render for AppRoot {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_back_press_capability(cx);
+
         if !self.incoming_event_listener_started {
             self.incoming_event_listener_started = true;
             cx.spawn(async move |this, cx| loop {
                 crate::core::receive_events::wait_for_incoming_event().await;
-                if this.update(cx, |_this, cx| cx.notify()).is_err() {
+                if this
+                    .update(cx, |this, cx| {
+                        let _ = this.home_entity.update(cx, |home, cx| {
+                            home.poll_incoming_events(cx);
+                        });
+                        cx.notify();
+                    })
+                    .is_err()
+                {
                     break;
                 }
             })
@@ -225,7 +234,6 @@ impl gpui::Render for AppRoot {
         }
 
         let _ = self.home_entity.update(cx, |home, cx| {
-            home.poll_incoming_events(window, cx);
             home.poll_send_cancel_event(window, cx);
             home.poll_send_retry_event(window, cx);
         });

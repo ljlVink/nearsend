@@ -55,6 +55,7 @@ fn render_license_card(
     v_flex()
         .id(format!("license-card-{lib_name}"))
         .w_full()
+        .min_w(px(0.))
         .rounded_lg()
         .border_1()
         .border_color(cx.theme().border)
@@ -68,11 +69,14 @@ fn render_license_card(
                 .justify_between()
                 .gap(px(8.))
                 .child(
-                    div()
-                        .text_base()
-                        .font_semibold()
-                        .text_color(cx.theme().foreground)
-                        .child(lib_name.clone()),
+                    div().flex_1().min_w(px(0.)).child(
+                        div()
+                            .w_full()
+                            .text_base()
+                            .font_semibold()
+                            .text_color(cx.theme().foreground)
+                            .child(lib_name.clone()),
+                    ),
                 )
                 .child(
                     Button::new(format!("license-toggle-{lib_name}"))
@@ -87,6 +91,7 @@ fn render_license_card(
         )
         .child(
             div()
+                .w_full()
                 .text_xs()
                 .line_height(px(18.))
                 .text_color(cx.theme().muted_foreground)
@@ -94,6 +99,7 @@ fn render_license_card(
         )
         .child(
             div()
+                .w_full()
                 .text_xs()
                 .line_height(px(18.))
                 .text_color(cx.theme().muted_foreground)
@@ -134,6 +140,12 @@ impl gpui::Render for OpenSourceLicensesPage {
         let libs = get_third_party_libs();
         let libs_count = libs.len();
         let expanded = self.expanded.clone();
+        let list_scroll = window
+            .use_keyed_state("open-source-licenses-list-scroll", cx, |_, _| {
+                ScrollHandle::default()
+            })
+            .read(cx)
+            .clone();
 
         let back_button_variant = ButtonCustomVariant::new(cx)
             .hover(cx.theme().transparent)
@@ -185,37 +197,62 @@ impl gpui::Render for OpenSourceLicensesPage {
                     ),
             )
             .child(
-                div().flex_1().w_full().overflow_y_scrollbar().child(
-                    v_flex()
-                        .id("open-source-licenses-list-scroll-area")
-                        .w_full()
-                        .px(px(15.))
-                        .py(px(12.))
-                        .gap(px(12.))
-                        .child(
-                            div()
-                                .w_full()
-                                .rounded_lg()
-                                .border_1()
-                                .border_color(cx.theme().border)
-                                .bg(cx.theme().secondary)
-                                .p(px(14.))
-                                .child(
-                                    div()
-                                        .text_sm()
-                                        .line_height(px(22.))
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(format!(
-                                            "以下展示 {libs_count} 个核心依赖包的 License 文本，点击条目可展开查看完整内容。"
-                                        )),
-                                ),
-                        )
-                        .children(libs.into_iter().map(|lib| {
-                            let is_expanded = expanded.contains(&lib.name);
-                            render_license_card(lib, is_expanded, window, cx)
-                        }))
-                        .child(div().h(px(24.))),
-                ),
+                div()
+                    .flex_1()
+                    .min_h(px(0.))
+                    .w_full()
+                    .relative()
+                    .child(
+                        div()
+                            .id("open-source-licenses-list-scroll-area")
+                            .w_full()
+                            .h_full()
+                            .flex()
+                            .flex_col()
+                            .overflow_y_scroll()
+                            .track_scroll(&list_scroll)
+                            .child(
+                                v_flex()
+                                    .w_full()
+                                    .flex_1()
+                                    .min_w(px(0.))
+                                    .px(px(15.))
+                                    .py(px(12.))
+                                    .gap(px(12.))
+                                    .child(
+                                        div()
+                                            .w_full()
+                                            .rounded_lg()
+                                            .border_1()
+                                            .border_color(cx.theme().border)
+                                            .bg(cx.theme().secondary)
+                                            .p(px(14.))
+                                            .child(
+                                                div()
+                                                    .text_sm()
+                                                    .line_height(px(22.))
+                                                    .text_color(cx.theme().muted_foreground)
+                                                    .child(format!(
+                                                        "以下展示 {libs_count} 个核心依赖包的 License 文本，点击条目可展开查看完整内容。"
+                                                    )),
+                                            ),
+                                    )
+                                    .children(libs.into_iter().map(|lib| {
+                                        let is_expanded = expanded.contains(&lib.name);
+                                        div()
+                                            .w_full()
+                                            .min_w(px(0.))
+                                            .child(render_license_card(
+                                                lib,
+                                                is_expanded,
+                                                window,
+                                                cx,
+                                            ))
+                                    }))
+                                    .child(div().h(px(24.))),
+                            ),
+                    )
+                    .vertical_scrollbar(&list_scroll),
             )
     }
 }

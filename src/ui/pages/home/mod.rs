@@ -64,7 +64,6 @@ pub enum TabType {
 
 /// Home page: receives / send / settings tabs + bottom nav.
 pub struct HomePage {
-    pub root: Option<Entity<crate::app::AppRoot>>,
     pub(super) app_state: Entity<AppState>,
     #[allow(dead_code)]
     pub(super) device_state: Entity<DeviceState>,
@@ -148,7 +147,6 @@ impl HomePage {
     }
 
     pub fn new(
-        root: Entity<crate::app::AppRoot>,
         app_state: Entity<AppState>,
         device_state: Entity<DeviceState>,
         transfer_state: Entity<TransferState>,
@@ -182,7 +180,6 @@ impl HomePage {
         };
 
         Self {
-            root: Some(root),
             app_state,
             device_state,
             transfer_state,

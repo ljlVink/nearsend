@@ -4,14 +4,19 @@ use super::*;
 
 impl HomePage {
     pub(super) fn navigate_to(&self, pathname: &str, cx: &mut Context<Self>) {
-        if let Some(root) = &self.root {
-            let _ = root.update(cx, |root, cx| {
-                root.navigate_to(pathname, cx);
-            });
-        } else {
-            RouterState::global_mut(cx).location.pathname = pathname.to_string().into();
-            cx.notify();
+        let current = RouterState::global(cx).location.pathname.clone();
+        if current.as_ref() == pathname {
+            return;
         }
+
+        let pathname_owned = pathname.to_string();
+        crate::ui::router_history::RouterHistoryState::global_mut(cx)
+            .history
+            .push(crate::ui::router_history::HistoryEntry::new(
+                pathname_owned.clone(),
+            ));
+        RouterState::global_mut(cx).location.pathname = pathname_owned.into();
+        cx.notify();
     }
 
     pub(super) fn render_bottom_nav(&mut self, cx: &mut Context<Self>) -> AnyElement {

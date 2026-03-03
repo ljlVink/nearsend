@@ -4,7 +4,6 @@ use super::*;
 
 impl gpui::Render for HomePage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.poll_incoming_events(window, cx);
         self.sync_selected_files_from_shared(cx);
         if !self.services_started {
             self.services_started = true;

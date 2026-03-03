@@ -902,7 +902,9 @@ async fn handle_cancel(
         if !v2 {
             sessions.keys().next().cloned().unwrap_or_default()
         } else if sessions.len() == 1 {
-            let (id, session) = sessions.iter().next().expect("checked len == 1");
+            let Some((id, session)) = sessions.iter().next() else {
+                return Err((StatusCode::BAD_REQUEST, "missing sessionId".to_string()));
+            };
             // Align with LocalSend: in waiting stage v2 cancel may omit sessionId.
             let waiting = session.files.values().all(|f| f.token.is_none());
             if waiting {

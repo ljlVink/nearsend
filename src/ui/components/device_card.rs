@@ -145,7 +145,7 @@ impl gpui::RenderOnce for DeviceCard {
                 })
                 .when(device.device_model.is_some(), |this| {
                     this.child(
-                        DeviceBadge::new(device.device_model.as_ref().unwrap().clone())
+                        DeviceBadge::new(device.device_model.clone().unwrap_or_default())
                             .background_color(cx.theme().primary.opacity(0.18).into())
                             .foreground_color(cx.theme().primary.into())
                             .border_color(cx.theme().primary.opacity(0.45).into()),
