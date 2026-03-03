@@ -388,7 +388,7 @@ async fn handle_request_inner(
     match (method, path.as_str()) {
         (Method::GET, "/api/localsend/v1/info")
         | (Method::GET, "/api/localsend/v2/info")
-        | (Method::GET, "/api/localsend/v3/info") => handle_info(req, state).await,
+        | (Method::GET, "/api/localsend/v3/info") => handle_info(req, state, remote_ip).await,
         (Method::POST, "/api/localsend/v1/register")
         | (Method::POST, "/api/localsend/v2/register")
         | (Method::POST, "/api/localsend/v3/register") => {
@@ -429,6 +429,7 @@ async fn handle_request_inner(
 async fn handle_info(
     req: Request<Incoming>,
     state: ServerState,
+    remote_ip: IpAddr,
 ) -> Result<Response<Full<Bytes>>, (StatusCode, String)> {
     let info = state.info.lock().await.clone();
     let own_fingerprint = info.token.clone();
@@ -446,6 +447,45 @@ async fn handle_info(
                 message: "Self-discovered".to_string(),
             },
         ));
+    }
+
+    // Passive discovery: when a peer queries our info endpoint for nearby-device probing,
+    // record it so it can appear in nearby list even before an explicit /register.
+    if !sender_fingerprint.is_empty() {
+        let alias = query_first(&query, &["alias"])
+            .cloned()
+            .filter(|v| !v.trim().is_empty())
+            .unwrap_or_else(|| remote_ip.to_string());
+        let version = query_first(&query, &["version"])
+            .cloned()
+            .filter(|v| !v.trim().is_empty())
+            .unwrap_or_else(|| "2.1".to_string());
+        let device_model = query_first(&query, &["deviceModel", "device_model"])
+            .cloned()
+            .filter(|v| !v.trim().is_empty());
+        let device_type = map_wire_device_type(
+            query_first(&query, &["deviceType", "device_type"]).map(|v| v.as_str()),
+        );
+        let port = query_first(&query, &["port"])
+            .and_then(|v| v.parse::<u16>().ok())
+            .filter(|v| *v > 0)
+            .unwrap_or(53317);
+        let https = query_first(&query, &["protocol", "scheme"])
+            .map(|v| v.eq_ignore_ascii_case("https"))
+            .unwrap_or(false);
+
+        crate::core::discovery::register_passive_device(crate::core::discovery::DiscoveredDevice {
+            info: ClientInfo {
+                alias,
+                version,
+                device_model,
+                device_type,
+                token: sender_fingerprint.clone(),
+            },
+            ip: remote_ip.to_string(),
+            port,
+            https,
+        });
     }
 
     Ok(json_response(
