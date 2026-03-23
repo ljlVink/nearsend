@@ -49,6 +49,16 @@ pub fn list_passive_devices(self_fingerprint: Option<&str>) -> Vec<DiscoveredDev
     out
 }
 
+pub fn has_passive_device_token(token: &str) -> bool {
+    if token.trim().is_empty() {
+        return false;
+    }
+    if let Ok(map) = passive_discovery_map().read() {
+        return map.values().any(|device| device.info.token == token);
+    }
+    false
+}
+
 pub fn clear_passive_devices() {
     if let Ok(mut map) = passive_discovery_map().write() {
         map.clear();

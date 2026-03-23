@@ -491,42 +491,45 @@ async fn handle_info(
         ));
     }
 
-    // Passive discovery: when a peer queries our info endpoint for nearby-device probing,
-    // record it so it can appear in nearby list even before an explicit /register.
-    if !sender_fingerprint.is_empty() {
-        let alias = query_first(&query, &["alias"])
-            .cloned()
-            .filter(|v| !v.trim().is_empty())
-            .unwrap_or_else(|| remote_ip.to_string());
-        let version = query_first(&query, &["version"])
-            .cloned()
-            .filter(|v| !v.trim().is_empty())
-            .unwrap_or_else(|| "2.1".to_string());
-        let device_model = query_first(&query, &["deviceModel", "device_model"])
-            .cloned()
-            .filter(|v| !v.trim().is_empty());
-        let device_type = map_wire_device_type(
-            query_first(&query, &["deviceType", "device_type"]).map(|v| v.as_str()),
-        );
-        let port = query_first(&query, &["port"])
+    if !sender_fingerprint.is_empty()
+        && !crate::core::discovery::has_passive_device_token(&sender_fingerprint)
+    {
+        let remote_ip_text = remote_ip.to_string();
+        let own_fingerprint = own_fingerprint.clone();
+        let probe_port = query_first(&query, &["port"])
             .and_then(|v| v.parse::<u16>().ok())
             .filter(|v| *v > 0)
             .unwrap_or(53317);
-        let https = query_first(&query, &["protocol", "scheme"])
+        let prefer_https = query_first(&query, &["protocol", "scheme"])
             .map(|v| v.eq_ignore_ascii_case("https"))
-            .unwrap_or(false);
-
-        crate::core::discovery::register_passive_device(crate::core::discovery::DiscoveredDevice {
-            info: ClientInfo {
-                alias,
-                version,
-                device_model,
-                device_type,
-                token: sender_fingerprint.clone(),
-            },
-            ip: remote_ip.to_string(),
-            port,
-            https,
+            .unwrap_or(true);
+        tokio::spawn(async move {
+            match crate::core::discovery::probe_device(
+                &remote_ip_text,
+                probe_port,
+                prefer_https,
+                Some(own_fingerprint),
+            )
+            .await
+            {
+                Some(device) => {
+                    log::info!(
+                        "reverse probe discovered peer alias={} ip={} port={} https={}",
+                        device.info.alias,
+                        device.ip,
+                        device.port,
+                        device.https
+                    );
+                    crate::core::discovery::register_passive_device(device);
+                }
+                None => {
+                    log::debug!(
+                        "reverse probe did not resolve peer details for {}:{}",
+                        remote_ip_text,
+                        probe_port
+                    );
+                }
+            }
         });
     }
 

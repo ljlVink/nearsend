@@ -146,6 +146,19 @@ impl HomePage {
         info
     }
 
+    fn should_display_peer(info: &ClientInfo, ip: Option<&str>) -> bool {
+        let alias = info.alias.trim();
+        if alias.is_empty() {
+            return false;
+        }
+        if let Some(ip) = ip.map(str::trim).filter(|ip| !ip.is_empty()) {
+            if alias == ip {
+                return false;
+            }
+        }
+        true
+    }
+
     pub fn new(
         app_state: Entity<AppState>,
         device_state: Entity<DeviceState>,

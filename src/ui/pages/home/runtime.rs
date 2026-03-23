@@ -429,11 +429,21 @@ impl HomePage {
 
         let mut info_map = std::collections::HashMap::<String, ClientInfo>::new();
         for info in self.send_state.nearby_devices.iter().cloned() {
-            info_map.insert(info.token.clone(), info);
+            let endpoint_ip = self
+                .send_state
+                .nearby_endpoints
+                .get(&info.token)
+                .map(|endpoint| endpoint.ip.as_str());
+            if Self::should_display_peer(&info, endpoint_ip) {
+                info_map.insert(info.token.clone(), info);
+            }
         }
         let mut favorites_changed = false;
         for d in cached {
             let normalized = Self::normalize_peer_info(d.info, &d.ip, d.port);
+            if !Self::should_display_peer(&normalized, Some(&d.ip)) {
+                continue;
+            }
             favorites_changed |= self.send_state.sync_favorite_from_discovered(
                 &normalized.token,
                 &normalized.alias,
@@ -529,11 +539,21 @@ impl HomePage {
 
                 let mut info_map = std::collections::HashMap::<String, ClientInfo>::new();
                 for info in this.send_state.nearby_devices.iter().cloned() {
-                    info_map.insert(info.token.clone(), info);
+                    let endpoint_ip = this
+                        .send_state
+                        .nearby_endpoints
+                        .get(&info.token)
+                        .map(|endpoint| endpoint.ip.as_str());
+                    if Self::should_display_peer(&info, endpoint_ip) {
+                        info_map.insert(info.token.clone(), info);
+                    }
                 }
                 let mut favorites_changed = false;
                 for d in &discovered {
                     let normalized = Self::normalize_peer_info(d.info.clone(), &d.ip, d.port);
+                    if !Self::should_display_peer(&normalized, Some(&d.ip)) {
+                        continue;
+                    }
                     favorites_changed |= this.send_state.sync_favorite_from_discovered(
                         &normalized.token,
                         &normalized.alias,
