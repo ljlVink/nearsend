@@ -67,6 +67,7 @@ struct InfoDto {
 }
 
 const MAX_AUTO_SCAN_PREFIX_COUNT: usize = 3;
+const MAX_AUTO_SCAN_CANDIDATES: usize = 4096;
 const MAX_CUSTOM_SCAN_CANDIDATES: usize = 4096;
 const MIN_CUSTOM_CIDR_PREFIX: u8 = 24;
 
@@ -74,6 +75,13 @@ const MIN_CUSTOM_CIDR_PREFIX: u8 = 24;
 enum DiscoveryTargetRule {
     Single(Ipv4Addr),
     Cidr { network: Ipv4Addr, prefix: u8 },
+}
+
+#[derive(Clone, Copy, Debug)]
+struct LocalInterfaceV4 {
+    ip: Ipv4Addr,
+    network: Ipv4Addr,
+    prefixlen: u8,
 }
 
 pub fn is_discovery_target_rule_valid(rule: &str) -> bool {
@@ -211,8 +219,8 @@ pub async fn scan_local_network(
         log::info!("discovery scan starts with {} passive devices", dedup.len());
     }
 
-    let interface_ips = local_interface_ipv4s().await;
-    if interface_ips.is_empty() && discovery_target_subnets.is_empty() {
+    let interfaces = local_interface_ipv4s().await;
+    if interfaces.is_empty() && discovery_target_subnets.is_empty() {
         return dedup.into_values().collect();
     }
 
@@ -228,22 +236,14 @@ pub async fn scan_local_network(
         }
     };
 
-    let local_ip_set = interface_ips.iter().cloned().collect::<BTreeSet<String>>();
+    let local_ip_set = interfaces
+        .iter()
+        .map(|iface| iface.ip.to_string())
+        .collect::<BTreeSet<_>>();
     let mut candidate_set = BTreeSet::new();
 
-    for interface_ip in interface_ips.iter().take(MAX_AUTO_SCAN_PREFIX_COUNT) {
-        let Ok(local_v4) = interface_ip.parse::<Ipv4Addr>() else {
-            continue;
-        };
-        let octets = local_v4.octets();
-        let base_prefix = format!("{}.{}.{}", octets[0], octets[1], octets[2]);
-        for i in 0..=255 {
-            let ip = format!("{}.{}", base_prefix, i);
-            if local_ip_set.contains(&ip) {
-                continue;
-            }
-            candidate_set.insert(ip);
-        }
+    for ip in collect_auto_discovery_candidates(&interfaces, &local_ip_set) {
+        candidate_set.insert(ip);
     }
 
     if !discovery_target_subnets.is_empty() {
@@ -305,55 +305,74 @@ async fn scan_one_ip(
     client: &reqwest::Client,
     ip: &str,
     port: u16,
-    https: bool,
+    prefer_https: bool,
     self_fingerprint: &str,
 ) -> Option<DiscoveredDevice> {
-    // Match LocalSend targeted discovery:
-    // - probe peer as v1 first handshake path
-    // - use current local TLS mode for scheme
-    let url = format!(
-        "{}://{}:{}/api/localsend/v1/info",
-        if https { "https" } else { "http" },
-        ip,
-        port
-    );
-    let req = client.get(&url).query(&[("fingerprint", self_fingerprint)]);
-    let res = match req.send().await {
-        Ok(r) => r,
-        Err(_) => return None,
+    let schemes = if prefer_https {
+        [true, false]
+    } else {
+        [false, true]
     };
-    if !res.status().is_success() {
-        return None;
-    }
-    let dto = match res.json::<InfoDto>().await {
-        Ok(dto) => dto,
-        Err(err) => {
-            log::debug!("parse info failed for {}: {}", url, err);
+    let mut attempts = Vec::new();
+
+    for https in schemes {
+        let scheme = if https { "https" } else { "http" };
+        let url = format!("{}://{}:{}/api/localsend/v1/info", scheme, ip, port);
+        let req = client.get(&url).query(&[("fingerprint", self_fingerprint)]);
+        let res = match req.send().await {
+            Ok(r) => r,
+            Err(err) => {
+                attempts.push(format!("{scheme}: request {err}"));
+                continue;
+            }
+        };
+        if res.status() == reqwest::StatusCode::PRECONDITION_FAILED {
             return None;
         }
-    };
+        if !res.status().is_success() {
+            attempts.push(format!("{scheme}: status {}", res.status()));
+            continue;
+        }
+        let dto = match res.json::<InfoDto>().await {
+            Ok(dto) => dto,
+            Err(err) => {
+                attempts.push(format!("{scheme}: parse {err}"));
+                continue;
+            }
+        };
 
-    let fingerprint = dto.fingerprint.or(dto.token).unwrap_or_default();
-    if !self_fingerprint.is_empty() && fingerprint == self_fingerprint {
-        return None;
+        let fingerprint = dto.fingerprint.or(dto.token).unwrap_or_default();
+        if !self_fingerprint.is_empty() && fingerprint == self_fingerprint {
+            return None;
+        }
+        let info = ClientInfo {
+            alias: dto.alias,
+            version: dto.version.unwrap_or_else(|| "1.0".to_string()),
+            device_model: dto.device_model,
+            device_type: map_device_type(dto.device_type.as_deref()),
+            token: fingerprint,
+        };
+        return Some(DiscoveredDevice {
+            info,
+            ip: ip.to_string(),
+            port,
+            https,
+        });
     }
-    let info = ClientInfo {
-        alias: dto.alias,
-        version: dto.version.unwrap_or_else(|| "1.0".to_string()),
-        device_model: dto.device_model,
-        device_type: map_device_type(dto.device_type.as_deref()),
-        token: fingerprint,
-    };
-    Some(DiscoveredDevice {
-        info,
-        ip: ip.to_string(),
-        port,
-        https,
-    })
+
+    if !attempts.is_empty() {
+        log::debug!(
+            "discovery probe failed for {}:{} -> {}",
+            ip,
+            port,
+            attempts.join("; ")
+        );
+    }
+    None
 }
 
-async fn local_interface_ipv4s() -> Vec<String> {
-    let mut local_ips = Vec::<Ipv4Addr>::new();
+async fn local_interface_ipv4s() -> Vec<LocalInterfaceV4> {
+    let mut local_interfaces = Vec::<LocalInterfaceV4>::new();
 
     if let Ok(interfaces) = if_addrs::get_if_addrs() {
         for iface in interfaces {
@@ -364,26 +383,154 @@ async fn local_interface_ipv4s() -> Vec<String> {
                 if v4.ip.is_link_local() {
                     continue;
                 }
-                local_ips.push(v4.ip);
+                let prefixlen = v4.prefixlen.min(32);
+                let mask = if prefixlen == 0 {
+                    0
+                } else {
+                    u32::MAX << (32 - prefixlen as u32)
+                };
+                local_interfaces.push(LocalInterfaceV4 {
+                    ip: v4.ip,
+                    network: Ipv4Addr::from(u32::from(v4.ip) & mask),
+                    prefixlen,
+                });
             }
         }
     }
 
-    let primary = local_ips.first().copied();
-    rank_ipv4_addresses(&mut local_ips, primary);
-    let mut ranked_ips = Vec::new();
+    let primary = detect_primary_route_ipv4();
+    rank_interface_ipv4s(&mut local_interfaces, primary);
+    let mut ranked_interfaces = Vec::new();
     let mut seen = BTreeSet::new();
-    for ip in local_ips {
-        let ip_text = ip.to_string();
-        if seen.insert(ip_text.clone()) {
-            ranked_ips.push(ip_text);
+    for iface in local_interfaces {
+        if seen.insert(iface.ip) {
+            ranked_interfaces.push(iface);
         }
     }
-    log::info!("discovery scan interfaces: {:?}", ranked_ips);
-    ranked_ips
+    log::info!(
+        "discovery scan interfaces: {:?}",
+        ranked_interfaces
+            .iter()
+            .map(|iface| format!("{}/{}", iface.ip, iface.prefixlen))
+            .collect::<Vec<_>>()
+    );
+    ranked_interfaces
 }
 
-fn rank_ipv4_addresses(list: &mut Vec<Ipv4Addr>, primary: Option<Ipv4Addr>) {
+fn collect_auto_discovery_candidates(
+    interfaces: &[LocalInterfaceV4],
+    local_ip_set: &BTreeSet<String>,
+) -> Vec<String> {
+    let mut set = BTreeSet::new();
+
+    for iface in interfaces.iter().take(MAX_AUTO_SCAN_PREFIX_COUNT) {
+        log::info!(
+            "discovery auto subnet: ip={} network={}/{}",
+            iface.ip,
+            iface.network,
+            iface.prefixlen
+        );
+
+        let host_bits = 32u32.saturating_sub(iface.prefixlen as u32);
+        let host_count = if host_bits == 32 {
+            u32::MAX
+        } else {
+            1u32 << host_bits
+        };
+        if host_count <= 1 {
+            continue;
+        }
+
+        let network_base = u32::from(iface.network);
+        let local_host = u32::from(iface.ip).saturating_sub(network_base);
+        let search_window = host_count
+            .saturating_sub(1)
+            .min((MAX_AUTO_SCAN_CANDIDATES as u32).saturating_mul(2));
+        let before = set.len();
+
+        for distance in 1..=search_window {
+            if let Some(host) = local_host.checked_sub(distance) {
+                push_auto_candidate(
+                    &mut set,
+                    local_ip_set,
+                    network_base,
+                    host,
+                    host_count,
+                    iface.prefixlen,
+                );
+            }
+            if let Some(host) = local_host.checked_add(distance).filter(|h| *h < host_count) {
+                push_auto_candidate(
+                    &mut set,
+                    local_ip_set,
+                    network_base,
+                    host,
+                    host_count,
+                    iface.prefixlen,
+                );
+            }
+
+            if set.len() >= MAX_AUTO_SCAN_CANDIDATES {
+                log::warn!(
+                    "auto discovery candidate limit reached ({}), stop expanding subnets",
+                    MAX_AUTO_SCAN_CANDIDATES
+                );
+                return set.into_iter().collect();
+            }
+        }
+
+        log::info!(
+            "discovery auto subnet {}/{} contributed {} candidates",
+            iface.network,
+            iface.prefixlen,
+            set.len().saturating_sub(before)
+        );
+    }
+
+    set.into_iter().collect()
+}
+
+fn push_auto_candidate(
+    set: &mut BTreeSet<String>,
+    local_ip_set: &BTreeSet<String>,
+    network_base: u32,
+    host: u32,
+    host_count: u32,
+    prefixlen: u8,
+) {
+    if prefixlen <= 30 && (host == 0 || host == host_count.saturating_sub(1)) {
+        return;
+    }
+
+    let ip_text = Ipv4Addr::from(network_base.saturating_add(host)).to_string();
+    if local_ip_set.contains(&ip_text) {
+        return;
+    }
+    set.insert(ip_text);
+}
+
+fn detect_primary_route_ipv4() -> Option<Ipv4Addr> {
+    let probes = [("224.0.0.167", 53317), ("1.1.1.1", 80), ("8.8.8.8", 80)];
+    for (host, port) in probes {
+        let socket = match std::net::UdpSocket::bind("0.0.0.0:0") {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        if socket.connect((host, port)).is_err() {
+            continue;
+        }
+        let local = match socket.local_addr() {
+            Ok(addr) => addr,
+            Err(_) => continue,
+        };
+        if let std::net::IpAddr::V4(ipv4) = local.ip() {
+            return Some(ipv4);
+        }
+    }
+    None
+}
+
+fn rank_interface_ipv4s(list: &mut Vec<LocalInterfaceV4>, primary: Option<Ipv4Addr>) {
     list.sort_by(|a, b| {
         let score = |ip: &Ipv4Addr| -> i32 {
             if Some(*ip) == primary {
@@ -394,11 +541,10 @@ fn rank_ipv4_addresses(list: &mut Vec<Ipv4Addr>, primary: Option<Ipv4Addr>) {
                 1
             }
         };
-        score(b)
-            .cmp(&score(a))
-            .then_with(|| a.octets().cmp(&b.octets()))
+        score(&b.ip)
+            .cmp(&score(&a.ip))
+            .then_with(|| a.ip.octets().cmp(&b.ip.octets()))
     });
-    list.dedup();
 }
 
 fn map_device_type(value: Option<&str>) -> Option<DeviceType> {

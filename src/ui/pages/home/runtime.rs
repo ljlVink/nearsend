@@ -213,10 +213,17 @@ impl HomePage {
         self.receive_state.server_ips = local_ips.clone();
         self.send_state.local_ips = local_ips;
 
+        let fingerprint = self
+            .app_state
+            .read(cx)
+            .cert
+            .as_ref()
+            .map(|cert| cert.certificate_fingerprint.clone())
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let alias = self.receive_state.server_alias.clone();
-        let token = uuid::Uuid::new_v4().to_string();
         let port = self.receive_state.server_port;
         let use_https = self.settings_state.encryption;
+        let multicast_group = self.settings_state.multicast_group.clone();
         let device_model = normalized_device_model(&self.settings_state);
         let device_type = parse_device_type(&self.settings_state.device_type);
         let client_info = ClientInfo {
@@ -224,7 +231,7 @@ impl HomePage {
             version: "2.1".to_string(),
             device_model: device_model.clone(),
             device_type,
-            token: token.clone(),
+            token: fingerprint,
         };
 
         // Store client_info in AppState
@@ -238,6 +245,7 @@ impl HomePage {
         let tokio_handle = self.app_state.read(cx).tokio_handle.clone();
         tokio_handle.spawn(async move {
             if let Err(err) = crate::core::multicast::start_multicast_service(
+                multicast_group,
                 client_info.alias,
                 client_info.token,
                 port,
@@ -254,6 +262,13 @@ impl HomePage {
 
     pub(super) fn start_local_server(&mut self, cx: &mut Context<Self>) {
         self.sync_server_config_to_runtime(cx);
+        let fallback_token = self
+            .app_state
+            .read(cx)
+            .cert
+            .as_ref()
+            .map(|cert| cert.certificate_fingerprint.clone())
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let client_info = self
             .app_state
             .read(cx)
@@ -264,7 +279,7 @@ impl HomePage {
                 version: "2.1".to_string(),
                 device_model: normalized_device_model(&self.settings_state),
                 device_type: parse_device_type(&self.settings_state.device_type),
-                token: uuid::Uuid::new_v4().to_string(),
+                token: fallback_token,
             });
 
         let server_entity = self.app_state.read(cx).server.clone();
@@ -344,6 +359,13 @@ impl HomePage {
         let alias = self.settings_state.server_alias.clone();
         let device_model = normalized_device_model(&self.settings_state);
         let device_type = parse_device_type(&self.settings_state.device_type);
+        let fallback_token = self
+            .app_state
+            .read(cx)
+            .cert
+            .as_ref()
+            .map(|cert| cert.certificate_fingerprint.clone())
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let app_state_entity = self.app_state.clone();
         app_state_entity.update(cx, |state, _| {
             if let Some(info) = state.client_info.as_mut() {
@@ -356,7 +378,7 @@ impl HomePage {
                     version: "2.1".to_string(),
                     device_model,
                     device_type,
-                    token: uuid::Uuid::new_v4().to_string(),
+                    token: fallback_token.clone(),
                 });
             }
         });
@@ -452,11 +474,13 @@ impl HomePage {
             .map(|c| c.token.clone());
         let announce_info = self.app_state.read(cx).client_info.clone();
         let use_https = self.settings_state.encryption;
+        let multicast_group = self.settings_state.multicast_group.clone();
         let discovery_target_subnets = self.settings_state.discovery_target_subnets.clone();
         let handle = self.app_state.read(cx).tokio_handle.clone();
         let join = handle.spawn(async move {
             if let Some(info) = announce_info {
                 if let Err(err) = crate::core::multicast::send_multicast_announcement(
+                    multicast_group,
                     info.alias,
                     info.token,
                     port,

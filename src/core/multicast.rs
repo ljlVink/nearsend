@@ -1,7 +1,7 @@
 use localsend::http::state::ClientInfo;
 use serde::{Deserialize, Serialize};
 use socket2::{Domain, Protocol, Socket, Type};
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
 const DEFAULT_MULTICAST_GROUP: &str = "224.0.0.167";
 
@@ -77,6 +77,7 @@ struct RegisterDto {
 }
 
 pub async fn start_multicast_service(
+    multicast_group: String,
     alias: String,
     fingerprint: String,
     port: u16,
@@ -84,9 +85,7 @@ pub async fn start_multicast_service(
     device_model: Option<String>,
     device_type: Option<localsend::model::discovery::DeviceType>,
 ) -> anyhow::Result<()> {
-    let group: Ipv4Addr = DEFAULT_MULTICAST_GROUP
-        .parse()
-        .map_err(|_| anyhow::anyhow!("invalid multicast group"))?;
+    let group = parse_multicast_group(&multicast_group)?;
     let sockets = create_listener_sockets(group, port).await?;
     log::info!("multicast listeners active: {}", sockets.len());
     let (packet_tx, mut packet_rx) = tokio::sync::mpsc::channel::<(Vec<u8>, SocketAddr)>(256);
@@ -113,6 +112,7 @@ pub async fn start_multicast_service(
     drop(packet_tx);
 
     send_multicast_announcement(
+        multicast_group.clone(),
         alias.clone(),
         fingerprint.clone(),
         port,
@@ -220,6 +220,7 @@ pub async fn start_multicast_service(
         if let Err(err) = client.post(&url).json(&register).send().await {
             log::debug!("multicast register response failed {}: {}", url, err);
             if let Err(fallback_err) = send_multicast_presence(
+                multicast_group.clone(),
                 alias.clone(),
                 fingerprint.clone(),
                 port,
@@ -249,16 +250,12 @@ async fn create_listener_sockets(
             log::debug!(
                 "join multicast failed for iface {} group {}: {}",
                 iface,
-                DEFAULT_MULTICAST_GROUP,
+                group,
                 err
             );
             continue;
         }
-        log::info!(
-            "joined multicast group {} on iface {}",
-            DEFAULT_MULTICAST_GROUP,
-            iface
-        );
+        log::info!("joined multicast group {} on iface {}", group, iface);
         sockets.push(socket);
     }
 
@@ -267,7 +264,7 @@ async fn create_listener_sockets(
         socket.join_multicast_v4(group, Ipv4Addr::UNSPECIFIED)?;
         log::info!(
             "joined multicast group {} on unspecified iface (fallback)",
-            DEFAULT_MULTICAST_GROUP
+            group
         );
         sockets.push(socket);
     }
@@ -282,6 +279,7 @@ async fn create_listener_sockets(
 }
 
 pub async fn send_multicast_announcement(
+    multicast_group: String,
     alias: String,
     fingerprint: String,
     port: u16,
@@ -290,6 +288,7 @@ pub async fn send_multicast_announcement(
     device_type: Option<localsend::model::discovery::DeviceType>,
 ) -> anyhow::Result<()> {
     send_multicast_presence(
+        multicast_group,
         alias,
         fingerprint,
         port,
@@ -302,6 +301,7 @@ pub async fn send_multicast_announcement(
 }
 
 async fn send_multicast_presence(
+    multicast_group: String,
     alias: String,
     fingerprint: String,
     port: u16,
@@ -328,9 +328,8 @@ async fn send_multicast_presence(
     };
 
     let payload = serde_json::to_vec(&info)?;
-    let group: Ipv4Addr = DEFAULT_MULTICAST_GROUP
-        .parse()
-        .map_err(|_| anyhow::anyhow!("invalid multicast group"))?;
+    let group = parse_multicast_group(&multicast_group)?;
+    let destination = SocketAddrV4::new(group, port);
     let delays: &[u64] = if announcement {
         &[100, 500, 2000]
     } else {
@@ -342,32 +341,30 @@ async fn send_multicast_presence(
         }
         let mut sent_any = false;
         for iface in local_ipv4_interfaces() {
-            let socket = match bind_reuse_udp_socket(0) {
-                Ok(s) => tokio::net::UdpSocket::from_std(s.into())?,
+            let socket = match bind_multicast_sender_socket(iface) {
+                Ok(socket) => socket,
                 Err(err) => {
-                    log::debug!("announcement bind failed on iface {}: {}", iface, err);
+                    log::debug!(
+                        "announcement sender setup failed on iface {}: {}",
+                        iface,
+                        err
+                    );
                     continue;
                 }
             };
-            if let Err(err) = socket.join_multicast_v4(group, iface) {
-                log::debug!("announcement join failed on iface {}: {}", iface, err);
-                continue;
-            }
-            if let Err(err) = socket
-                .send_to(&payload, format!("{}:{}", DEFAULT_MULTICAST_GROUP, port))
-                .await
-            {
-                log::debug!("multicast announcement send failed: {}", err);
+            if let Err(err) = socket.send_to(&payload, destination).await {
+                log::debug!(
+                    "multicast announcement send failed on iface {}: {}",
+                    iface,
+                    err
+                );
             } else {
                 sent_any = true;
             }
         }
         if !sent_any {
             let socket = tokio::net::UdpSocket::bind(("0.0.0.0", 0)).await?;
-            if let Err(err) = socket
-                .send_to(&payload, format!("{}:{}", DEFAULT_MULTICAST_GROUP, port))
-                .await
-            {
+            if let Err(err) = socket.send_to(&payload, destination).await {
                 log::debug!("multicast announcement send failed: {}", err);
             }
         }
@@ -382,6 +379,29 @@ fn bind_reuse_udp_socket(port: u16) -> anyhow::Result<Socket> {
     socket.bind(&std::net::SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, port).into())?;
     socket.set_nonblocking(true)?;
     Ok(socket)
+}
+
+fn bind_multicast_sender_socket(iface: Ipv4Addr) -> anyhow::Result<tokio::net::UdpSocket> {
+    let socket = bind_reuse_udp_socket(0)?;
+    socket.set_multicast_if_v4(&iface)?;
+    socket.set_multicast_loop_v4(true)?;
+    socket.set_multicast_ttl_v4(1)?;
+    Ok(tokio::net::UdpSocket::from_std(socket.into())?)
+}
+
+fn parse_multicast_group(group: &str) -> anyhow::Result<Ipv4Addr> {
+    let raw = if group.trim().is_empty() {
+        DEFAULT_MULTICAST_GROUP
+    } else {
+        group.trim()
+    };
+    let addr: Ipv4Addr = raw
+        .parse()
+        .map_err(|_| anyhow::anyhow!("invalid multicast group: {}", raw))?;
+    if !addr.is_multicast() {
+        anyhow::bail!("multicast group is not in 224.0.0.0/4: {}", raw);
+    }
+    Ok(addr)
 }
 
 fn parse_multicast_payload(payload: &[u8]) -> anyhow::Result<MulticastDto> {

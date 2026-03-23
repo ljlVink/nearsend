@@ -27,6 +27,13 @@ use tokio::time::{timeout, Duration};
 use tokio_rustls::TlsAcceptor;
 
 #[derive(Clone)]
+enum TlsMode {
+    Disabled,
+    Required(TlsAcceptor),
+    Opportunistic(TlsAcceptor),
+}
+
+#[derive(Clone)]
 struct ServerState {
     info: Arc<Mutex<ClientInfo>>,
     sessions: Arc<Mutex<HashMap<String, IncomingSession>>>,
@@ -190,11 +197,15 @@ impl ServerManager {
             return Ok(());
         }
 
-        let tls_acceptor = if use_https {
+        let tls_mode = if use_https {
             let cert = cert.ok_or_else(|| anyhow::anyhow!("HTTPS requires certificate"))?;
-            Some(build_tls_acceptor(&cert)?)
+            TlsMode::Required(build_tls_acceptor(&cert)?)
+        } else if let Some(cert) = cert.as_ref() {
+            // Official LocalSend desktop falls back to a single-scheme HTTP scan.
+            // Accept TLS probes on the same port even in HTTP mode to keep discovery symmetric.
+            TlsMode::Opportunistic(build_tls_acceptor(cert)?)
         } else {
-            None
+            TlsMode::Disabled
         };
 
         let (stop_tx, stop_rx) = oneshot::channel();
@@ -207,7 +218,7 @@ impl ServerManager {
             if let Err(e) = start_with_port(
                 port,
                 client_info,
-                tls_acceptor,
+                tls_mode,
                 pin_config,
                 default_save_directory,
                 stop_rx,
@@ -275,7 +286,7 @@ fn build_tls_acceptor(cert: &CertPair) -> anyhow::Result<TlsAcceptor> {
 async fn start_with_port(
     port: u16,
     info: ClientInfo,
-    tls_acceptor: Option<TlsAcceptor>,
+    tls_mode: TlsMode,
     pin_config: Arc<Mutex<ReceivePinConfig>>,
     default_save_directory: Arc<Mutex<Option<PathBuf>>>,
     mut stop_rx: oneshot::Receiver<()>,
@@ -305,26 +316,12 @@ async fn start_with_port(
             accepted = listener_v4.accept() => {
                 let (stream, remote_addr) = accepted?;
                 let state = state.clone();
-                let tls_acceptor = tls_acceptor.clone();
+                let tls_mode = tls_mode.clone();
                 tokio::spawn(async move {
-                    let builder = Builder::new(TokioExecutor::new());
-                    if let Some(acceptor) = tls_acceptor {
-                        match acceptor.accept(stream).await {
-                            Ok(tls_stream) => {
-                                let svc = service_fn(move |req| handle_request(req, state.clone(), remote_addr.ip()));
-                                let conn = builder.serve_connection(TokioIo::new(tls_stream), svc);
-                                if let Err(err) = conn.await {
-                                    log::warn!("serve tls connection failed: {}", err);
-                                }
-                            }
-                            Err(err) => log::warn!("tls handshake failed: {}", err),
-                        }
-                    } else {
-                        let svc = service_fn(move |req| handle_request(req, state.clone(), remote_addr.ip()));
-                        let conn = builder.serve_connection(TokioIo::new(stream), svc);
-                        if let Err(err) = conn.await {
-                            log::warn!("serve connection failed: {}", err);
-                        }
+                    if let Err(err) =
+                        serve_tcp_connection(stream, remote_addr.ip(), state, tls_mode).await
+                    {
+                        log::warn!("serve connection failed: {}", err);
                     }
                 });
             }
@@ -336,26 +333,12 @@ async fn start_with_port(
             } => {
                 let (stream, remote_addr) = accepted?;
                 let state = state.clone();
-                let tls_acceptor = tls_acceptor.clone();
+                let tls_mode = tls_mode.clone();
                 tokio::spawn(async move {
-                    let builder = Builder::new(TokioExecutor::new());
-                    if let Some(acceptor) = tls_acceptor {
-                        match acceptor.accept(stream).await {
-                            Ok(tls_stream) => {
-                                let svc = service_fn(move |req| handle_request(req, state.clone(), remote_addr.ip()));
-                                let conn = builder.serve_connection(TokioIo::new(tls_stream), svc);
-                                if let Err(err) = conn.await {
-                                    log::warn!("serve tls connection failed: {}", err);
-                                }
-                            }
-                            Err(err) => log::warn!("tls handshake failed: {}", err),
-                        }
-                    } else {
-                        let svc = service_fn(move |req| handle_request(req, state.clone(), remote_addr.ip()));
-                        let conn = builder.serve_connection(TokioIo::new(stream), svc);
-                        if let Err(err) = conn.await {
-                            log::warn!("serve connection failed: {}", err);
-                        }
+                    if let Err(err) =
+                        serve_tcp_connection(stream, remote_addr.ip(), state, tls_mode).await
+                    {
+                        log::warn!("serve connection failed: {}", err);
                     }
                 });
             }
@@ -363,6 +346,65 @@ async fn start_with_port(
     }
 
     Ok(())
+}
+
+async fn serve_tcp_connection(
+    stream: tokio::net::TcpStream,
+    remote_ip: IpAddr,
+    state: ServerState,
+    tls_mode: TlsMode,
+) -> anyhow::Result<()> {
+    let builder = Builder::new(TokioExecutor::new());
+    match tls_mode {
+        TlsMode::Disabled => {
+            let svc = service_fn(move |req| handle_request(req, state.clone(), remote_ip));
+            builder
+                .serve_connection(TokioIo::new(stream), svc)
+                .await
+                .map_err(|err| anyhow::anyhow!("serve plain connection failed: {}", err))?;
+        }
+        TlsMode::Required(acceptor) => {
+            let tls_stream = acceptor
+                .accept(stream)
+                .await
+                .map_err(|err| anyhow::anyhow!("tls handshake failed: {}", err))?;
+            let svc = service_fn(move |req| handle_request(req, state.clone(), remote_ip));
+            builder
+                .serve_connection(TokioIo::new(tls_stream), svc)
+                .await
+                .map_err(|err| anyhow::anyhow!("serve tls connection failed: {}", err))?;
+        }
+        TlsMode::Opportunistic(acceptor) => {
+            if looks_like_tls_client_hello(&stream).await? {
+                let tls_stream = acceptor
+                    .accept(stream)
+                    .await
+                    .map_err(|err| anyhow::anyhow!("tls handshake failed: {}", err))?;
+                let svc = service_fn(move |req| handle_request(req, state.clone(), remote_ip));
+                builder
+                    .serve_connection(TokioIo::new(tls_stream), svc)
+                    .await
+                    .map_err(|err| anyhow::anyhow!("serve tls connection failed: {}", err))?;
+            } else {
+                let svc = service_fn(move |req| handle_request(req, state.clone(), remote_ip));
+                builder
+                    .serve_connection(TokioIo::new(stream), svc)
+                    .await
+                    .map_err(|err| anyhow::anyhow!("serve plain connection failed: {}", err))?;
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn looks_like_tls_client_hello(stream: &tokio::net::TcpStream) -> anyhow::Result<bool> {
+    let mut buf = [0u8; 3];
+    let read = stream.peek(&mut buf).await?;
+    if read < 3 {
+        return Ok(false);
+    }
+
+    Ok(buf[0] == 0x16 && buf[1] == 0x03)
 }
 
 async fn handle_request(
