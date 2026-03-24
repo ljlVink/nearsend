@@ -6,3 +6,4 @@ package/libs
 
 *.har
 *.so
+keys/
